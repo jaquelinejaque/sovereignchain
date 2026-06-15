@@ -1,0 +1,59 @@
+[project]
+name = "quorum-ai"
+version = "0.0.1"
+description = "Multi-LLM consensus engine with semantic agreement and self-evolution"
+authors = [{ name = "Jaqueline Martins", email = "jaqueline@hsp-protocol.com" }]
+license = { text = "Apache-2.0 WITH HSP-Commercial-Restrictions" }
+readme = "README.md"
+requires-python = ">=3.10"
+keywords = ["llm", "consensus", "multi-model", "ai", "orchestration", "ensemble"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.7",
+    "numpy>=1.26",
+    "rich>=13.7",
+    "typer>=0.12",
+]
+
+[project.optional-dependencies]
+providers = [
+    "anthropic>=0.30",
+    "google-generativeai>=0.7",
+    "openai>=1.30",
+    "replicate>=0.32",
+]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5"]
+all = ["quorum-ai[providers,dev]"]
+
+[project.scripts]
+quorum = "quorum.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/jaquelinejaque/sovereignchain"
+Repository = "https://github.com/jaquelinejaque/sovereignchain"
+Issues = "https://github.com/jaquelinejaque/sovereignchain/issues"
+"HSP Patent" = "https://github.com/jaquelinejaque/hsp-protocol"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/quorum"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

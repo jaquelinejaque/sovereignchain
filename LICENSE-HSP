@@ -1,0 +1,53 @@
+# HSP Commercial Use Restrictions
+
+This repository integrates with the **Human Supervision Protocol (HSP)** —
+a fail-closed execution layer for autonomous AI agents.
+
+## Patent
+
+- **Patent**: PCT/US26/11908 — International Patent Application
+- **Status**: Patent Pending (USPTO Patent Center)
+- **Holder**: Sovereign Chain Ltd (Jaqueline Martins), UK
+- **Project**: https://github.com/jaquelinejaque/hsp-protocol
+- **Whitepaper**: see HSP_Whitepaper_The_AI_Black_Box.pdf
+
+## Scope of restriction
+
+The following modules within this repository implement HSP:
+
+- `quorum/hsp/gate.py` — fail-closed approval gate for evolution loops
+- `quorum/hsp/ai_act_cert.py` — auto-certification for EU AI Act 2026-08
+- `quorum/evolution/distillation.py` — model weight promotion (gated)
+- `quorum/evolution/adversarial.py` — adversarial self-play (gated)
+- `quorum/evolution/synthetic_data.py` — synthetic data generation (gated)
+
+## Permitted use under Apache 2.0 alone
+
+- ✅ Research, academic, and personal use
+- ✅ Self-hosting for individual or single-team productivity
+- ✅ Fork, modify, and contribute back
+
+## Commercial use REQUIRES separate HSP license
+
+You must obtain a commercial HSP license from Sovereign Chain Ltd if you:
+
+- ❌ Operate this software as a paid SaaS / hosted product
+- ❌ Resell or sublicense the HSP-gated functionality
+- ❌ Use the HSP-certified EU AI Act compliance output in a regulated
+  product offering
+- ❌ Train derivative models on outputs gated by HSP
+
+## How to obtain commercial license
+
+Contact: jaqueline.martins@hsp-protocol.com
+Subject: "HSP Commercial License Inquiry — [Your Company]"
+
+Standard licensing rates (subject to change):
+- Solo developer (< £100k revenue): £0 (free with attribution)
+- SMB (£100k–£5M revenue): tiered, starting £499/year
+- Enterprise: custom
+
+---
+
+For full patent disclosure and HSP architecture documentation, see:
+https://github.com/jaquelinejaque/hsp-protocol
