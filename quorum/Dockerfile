@@ -1,0 +1,97 @@
+# syntax=docker/dockerfile:1.7
+# ============================================================================
+# Quorum API — Multi-stage Dockerfile for Cloud Run
+# Stage 1: builder  — installs deps with uv into a virtualenv
+# Stage 2: runner   — slim runtime, non-root user, copies only the venv + src
+# ============================================================================
+
+# ----------------------------------------------------------------------------
+# Stage 1 — builder
+# ----------------------------------------------------------------------------
+FROM python:3.12-slim AS builder
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    UV_LINK_MODE=copy \
+    UV_COMPILE_BYTECODE=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:${PATH}"
+
+# Build-time OS deps (kept minimal; purged in runner stage by not copying)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        build-essential \
+        curl \
+        ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Install uv (fast resolver/installer from Astral)
+RUN pip install --no-cache-dir "uv>=0.4.0"
+
+# Create isolated virtualenv we will copy into the runner
+RUN uv venv "${VIRTUAL_ENV}"
+
+WORKDIR /build
+
+# Copy dependency manifest first to maximize Docker layer cache
+COPY pyproject.toml ./
+# Optional lock file — copy if present (graceful: ignored if missing on context)
+COPY uv.loc[k] ./
+
+# Install project dependencies into the venv
+# --system would target /usr; we explicitly target the venv via VIRTUAL_ENV.
+RUN uv pip install --no-cache --requirement pyproject.toml
+
+# Copy the actual source and install the project itself (editable=False)
+COPY src ./src
+RUN uv pip install --no-cache --no-deps .
+
+# ----------------------------------------------------------------------------
+# Stage 2 — runner (slim, non-root)
+# ----------------------------------------------------------------------------
+FROM python:3.12-slim AS runner
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    VIRTUAL_ENV=/opt/venv \
+    PATH="/opt/venv/bin:${PATH}" \
+    PORT=8080 \
+    HOST=0.0.0.0
+
+# Runtime OS deps only — curl is needed for HEALTHCHECK
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+        curl \
+        ca-certificates \
+        tini \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --system --gid 1001 quorum \
+ && useradd  --system --uid 1001 --gid quorum --home-dir /app --shell /usr/sbin/nologin quorum
+
+WORKDIR /app
+
+# Copy the prepared virtualenv from builder
+COPY --from=builder --chown=quorum:quorum /opt/venv /opt/venv
+
+# Copy project files needed at runtime
+COPY --chown=quorum:quorum pyproject.toml ./
+COPY --chown=quorum:quorum src ./src
+
+# Drop privileges
+USER quorum:quorum
+
+EXPOSE 8080
+
+# Cloud Run probes /healthz; local docker run uses this HEALTHCHECK too.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD curl -fsS "http://127.0.0.1:${PORT:-8080}/healthz" || exit 1
+
+# tini = proper PID 1 (reaps zombies, forwards signals to uvicorn)
+ENTRYPOINT ["/usr/bin/tini", "--"]
+
+# Cloud Run injects $PORT (default 8080); host must be 0.0.0.0
+# Use sh -c so ${PORT:-8080} expansion happens at runtime, not build time.
+CMD ["sh", "-c", "exec uvicorn quorum.server.main:app --host 0.0.0.0 --port ${PORT:-8080} --proxy-headers --forwarded-allow-ips='*'"]

@@ -1,0 +1,93 @@
+# ============================================================================
+# .dockerignore — keep the build context small and secret-free
+# ============================================================================
+
+# --- Tests & dev tooling --------------------------------------------------
+tests/
+test/
+**/tests/
+**/test_*.py
+**/*_test.py
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# --- Python build / cache -------------------------------------------------
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+build/
+dist/
+.eggs/
+pip-wheel-metadata/
+
+# --- Virtualenvs ----------------------------------------------------------
+.venv/
+venv/
+env/
+.env/
+ENV/
+
+# --- VCS ------------------------------------------------------------------
+.git/
+.gitignore
+.gitattributes
+.github/
+.gitlab-ci.yml
+
+# --- Local data / databases ----------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+*.db-journal
+data/
+local_data/
+
+# --- Secrets / environment files -----------------------------------------
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+secrets/
+.secrets/
+
+# --- Editor / OS noise ----------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# --- Docker / CI artifacts -----------------------------------------------
+Dockerfile*
+!Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# --- Docs / misc not needed in image -------------------------------------
+README.md
+CHANGELOG.md
+CONTRIBUTING.md
+LICENSE
+docs/
+landing/
+*.md
+!src/**/*.md
+
+# --- Logs -----------------------------------------------------------------
+*.log
+logs/

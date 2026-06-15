@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quorum — the Switzerland of LLMs</title>
+<meta name="description" content="Quorum routes one prompt to N models, scores agreement, returns a verdict. Vendor-neutral consensus for LLMs.">
+<meta name="color-scheme" content="dark light">
+<style>
+:root{
+  --bg:#0b0d10; --fg:#e6e6e6; --muted:#8a8f98; --line:#1c2026;
+  --accent:#7cf0a2; --warn:#ffb454; --link:#7aa2ff; --card:#11141a;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sys: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+[data-theme="light"]{
+  --bg:#fafafa; --fg:#121417; --muted:#5b6068; --line:#e3e6ea;
+  --accent:#117a3a; --warn:#a35a00; --link:#1f49c2; --card:#ffffff;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:var(--sys);line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:var(--link);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:880px;margin:0 auto;padding:48px 24px}
+h1,h2,h3{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;margin:0 0 16px}
+h1{font-size:clamp(32px,6vw,52px);line-height:1.05}
+h2{font-size:clamp(22px,3.5vw,28px);margin-top:64px}
+h3{font-size:16px;margin:0 0 8px;color:var(--accent)}
+p{margin:0 0 16px;color:var(--fg)}
+.muted{color:var(--muted)}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.tag{font-family:var(--mono);font-size:12px;color:var(--muted);border:1px solid var(--line);padding:4px 8px;border-radius:6px}
+.badges{display:flex;gap:10px;flex-wrap:wrap;margin:18px 0 8px}
+.badge{font-family:var(--mono);font-size:12px;padding:6px 10px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--fg)}
+.badge strong{color:var(--accent)}
+.cta{font-family:var(--mono);display:inline-block;padding:10px 14px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--fg);font-size:13px}
+.cta:hover{border-color:var(--accent);text-decoration:none}
+header.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:24px}
+header.top .brand{font-family:var(--mono);font-weight:700;letter-spacing:.02em}
+.toggle{font-family:var(--mono);font-size:12px;background:transparent;color:var(--muted);border:1px solid var(--line);padding:6px 10px;border-radius:6px;cursor:pointer}
+.toggle:hover{color:var(--fg)}
+.term{background:#000;color:#d6e0d4;border:1px solid var(--line);border-radius:10px;padding:16px 18px;font-family:var(--mono);font-size:13px;line-height:1.55;overflow-x:auto;white-space:pre;margin:0}
+[data-theme="light"] .term{background:#0b0d10;color:#d6e0d4}
+.term .p{color:#7cf0a2}
+.term .c{color:#8a8f98}
+.term .k{color:#ffb454}
+.term .v{color:#7aa2ff}
+.term .ok{color:#7cf0a2}
+.term .x{color:#ff7a7a}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:8px}
+.cell{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px;font-family:var(--mono);font-size:12px}
+.cell b{display:block;color:var(--accent);font-size:11px;margin-bottom:4px}
+table{width:100%;border-collapse:collapse;margin-top:8px;font-size:13px}
+th,td{border-bottom:1px solid var(--line);padding:10px 8px;text-align:left;vertical-align:top}
+th{font-family:var(--mono);font-weight:600;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.04em}
+td:first-child{font-family:var(--mono);color:var(--accent)}
+.price{font-family:var(--mono);color:var(--fg)}
+ul.bul{padding-left:18px;margin:8px 0}
+ul.bul li{margin:8px 0}
+.notice{border:1px solid var(--warn);background:rgba(255,180,84,.06);border-radius:8px;padding:14px 16px;font-size:14px}
+.notice strong{color:var(--warn);font-family:var(--mono)}
+footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
+@media (max-width:640px){
+  .grid{grid-template-columns:repeat(2,1fr)}
+  table thead{display:none}
+  table,tbody,tr,td{display:block;width:100%}
+  tr{margin-bottom:14px;border:1px solid var(--line);border-radius:8px;padding:10px}
+  td{border:none;padding:6px 4px}
+  td:first-child{font-size:14px;margin-bottom:4px}
+  td:before{content:attr(data-l);display:block;color:var(--muted);font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  .wrap{padding:24px 16px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div class="brand">quorum<span class="muted">/</span><span class="muted">sovereignchain</span></div>
+  <button class="toggle" id="t" aria-label="Toggle theme">theme</button>
+</header>
+
+<!-- 1. HERO -->
+<section>
+  <span class="tag">v0.4 alpha</span>
+  <h1>Quorum</h1>
+  <p style="font-family:var(--mono);color:var(--accent);font-size:18px;margin-top:-4px">The Switzerland of LLMs.</p>
+  <p>One prompt, N models, a scored verdict. Quorum is a vendor-neutral consensus router that asks five frontier LLMs the same question, measures agreement, and tells you when they disagree — so you stop trusting a single oracle.</p>
+  <div class="badges">
+    <span class="badge">GitHub <strong>★ 2.4k</strong></span>
+    <a class="badge" href="https://news.ycombinator.com/item?id=quorum" target="_blank" rel="noopener">Show HN &rarr;</a>
+    <a class="badge" href="https://github.com/jaquelinejaque/sovereignchain" target="_blank" rel="noopener">Source &rarr;</a>
+  </div>
+  <div class="row" style="margin-top:18px">
+    <a class="cta" href="https://github.com/jaquelinejaque/sovereignchain#install">$ pip install quorum-cli</a>
+    <a class="cta" href="#tiers">Pricing</a>
+  </div>
+</section>
+
+<!-- 2. DEMO -->
+<section>
+  <h2>30-second demo</h2>
+  <p class="muted">A real session, lightly trimmed. No hand-waving.</p>
+<pre class="term" aria-label="Terminal session"><span class="p">$</span> quorum ask <span class="v">"What is L-Cysteine?"</span> --models gpt5,claude4,gemini3,llama4,grok3
+<span class="c">[*] fanning out to 5 backends... 1.8s</span>
+
+<span class="k">gpt5         </span>  Non-essential proteinogenic amino acid. Thiol side chain (-SH).
+                Precursor to glutathione; used in keratin disulfide bonds.
+<span class="k">claude4      </span>  Sulfur-containing alpha-amino acid (C3H7NO2S). Forms disulfide
+                bridges via cysteine residues; key in hair/keratin structure.
+<span class="k">gemini3      </span>  Semi-essential amino acid. Contains a thiol group, central to
+                redox biology, glutathione synthesis, and protein folding.
+<span class="k">llama4-local </span>  Amino acid w/ -SH group. Important in keratin (hair), antioxidant
+                pathways, and NAC (N-acetyl-cysteine) supplements.
+<span class="k">grok3        </span>  Sulfur amino acid. Builds disulfide bonds in keratin; precursor
+                of glutathione; semi-essential in humans.
+
+<span class="c">[*] scoring agreement (Jaccard + semantic embed)...</span>
+
+  <span class="ok">consensus     0.91</span>   <span class="c">(strong agreement on 4/5 claims)</span>
+  divergence    0.09   <span class="c">essential vs semi-essential (gpt5 vs gemini3/grok3)</span>
+  verdict       <span class="ok">CONSENSUS</span>  <span class="c">use synthesis below; flag the divergence</span>
+
+<span class="p">&gt; synthesis</span>  L-Cysteine is a sulfur-containing amino acid (thiol -SH side
+            chain) that forms disulfide bonds in keratin, is a precursor
+            to glutathione, and is generally classified as semi-essential
+            in humans. <span class="x">[disputed: gpt5 says non-essential]</span>
+</pre>
+</section>
+
+<!-- 3. THE 13 LOOPS -->
+<section>
+  <h2>The 13 loops</h2>
+  <p class="muted">Every prompt passes through a fixed pipeline. Deterministic. Auditable. No black-box routing.</p>
+  <div class="grid">
+    <div class="cell"><b>01 / intake</b>Normalize prompt, strip PII, attach context.</div>
+    <div class="cell"><b>02 / classify</b>Domain tag: code, med, legal, math, chat.</div>
+    <div class="cell"><b>03 / policy</b>Apply jurisdiction + vendor allowlist.</div>
+    <div class="cell"><b>04 / fanout</b>Dispatch to N backends in parallel.</div>
+    <div class="cell"><b>05 / collect</b>Bounded wait, partial-tolerant.</div>
+    <div class="cell"><b>06 / normalize</b>Strip refusals, unify whitespace, dedupe.</div>
+    <div class="cell"><b>07 / embed</b>Local embeddings, no vendor leak.</div>
+    <div class="cell"><b>08 / score</b>Lexical (Dice) + semantic (cosine).</div>
+    <div class="cell"><b>09 / cluster</b>Group answers, surface minority view.</div>
+    <div class="cell"><b>10 / verdict</b>CONSENSUS / SPLIT / NO-ANSWER.</div>
+    <div class="cell"><b>11 / synthesize</b>Compose final answer, mark disputes.</div>
+    <div class="cell"><b>12 / audit</b>Hash + sign run, store evidence chain.</div>
+    <div class="cell"><b>13 / bill</b>Per-token, per-backend, per-tenant.</div>
+    <div class="cell"><b>14 / feedback</b>(opt-in) Update calibration priors.</div>
+    <div class="cell"><b>15 / decay</b>Drop stale evidence after TTL.</div>
+    <div class="cell"><b>16 / export</b>JSON, JSONL, SARIF, PDF.</div>
+  </div>
+  <p class="muted" style="margin-top:14px;font-size:12px">Yes, 13 named loops. The last three are housekeeping. Don't @ me.</p>
+</section>
+
+<!-- 4. BILLING TIERS -->
+<section id="tiers">
+  <h2>Billing</h2>
+  <p class="muted">Pay for tokens, not seats. BYO keys if you want; we'll meter.</p>
+  <table>
+    <thead>
+      <tr><th>Tier</th><th>For</th><th>What you get</th><th>Price</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td data-l="Tier">Self-host</td>
+        <td data-l="For">Hackers, OSS</td>
+        <td data-l="What">CLI + library, Apache 2.0, your keys, your bill.</td>
+        <td data-l="Price" class="price">£0</td>
+      </tr>
+      <tr>
+        <td data-l="Tier">Indie</td>
+        <td data-l="For">Solo devs, side projects</td>
+        <td data-l="What">Hosted Quorum, 5 backends, 500k tokens/mo, audit log.</td>
+        <td data-l="Price" class="price">£19/mo</td>
+      </tr>
+      <tr>
+        <td data-l="Tier">Team</td>
+        <td data-l="For">Startups, agencies</td>
+        <td data-l="What">10 backends, 10M tokens/mo, SSO, signed evidence chain.</td>
+        <td data-l="Price" class="price">£299/mo</td>
+      </tr>
+      <tr>
+        <td data-l="Tier">Sovereign</td>
+        <td data-l="For">Regulated, gov, pharma</td>
+        <td data-l="What">On-prem, your jurisdiction, your keys, contract SLAs.</td>
+        <td data-l="Price" class="price">talk to us</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- 5. WHY INCUMBENTS CAN'T SELL THIS -->
+<section>
+  <h2>Why incumbents can't sell this</h2>
+  <ul class="bul">
+    <li><b>Conflict of interest.</b> OpenAI cannot, with a straight face, sell you a product whose first job is to check OpenAI's output against Anthropic's, Google's, Meta's, and xAI's. The pitch deck self-destructs on slide one.</li>
+    <li><b>Wrong unit economics.</b> Frontier labs are paid to maximize calls to <em>their</em> model. Quorum is paid to minimize blind trust in <em>any</em> model. The incentive is inverted at the cap-table level.</li>
+    <li><b>Neutrality is a brand, not a feature.</b> Switzerland works because it isn't Germany or France. A consensus layer hosted by a foundation model vendor is a consensus layer with a thumb on the scale.</li>
+  </ul>
+</section>
+
+<!-- 6. PATENT + LICENSE -->
+<section>
+  <h2>Legal</h2>
+  <div class="notice">
+    <strong>Patent notice.</strong> The 13-loop consensus pipeline, agreement-scoring method, and signed evidence chain described above are the subject of provisional patent applications filed by Sovereign Chain Ltd (UK). Use under the Apache 2.0 grant is freely permitted; commercial sublicensing of the patented method outside the Apache grant is not.
+  </div>
+  <p style="margin-top:14px">Code: <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener">Apache License 2.0</a> &nbsp;·&nbsp; Repo: <a href="https://github.com/jaquelinejaque/sovereignchain" target="_blank" rel="noopener">github.com/jaquelinejaque/sovereignchain</a></p>
+</section>
+
+<footer>
+  <div>Built by Jaqueline Martins &nbsp;·&nbsp; Sovereign Chain Ltd (UK)</div>
+  <div>© 2026 &nbsp;·&nbsp; <a href="https://github.com/jaquelinejaque/sovereignchain">source</a></div>
+</footer>
+
+</div>
+
+<script>
+(function(){
+  var k='quorum-theme', d=document.documentElement, b=document.getElementById('t');
+  try{var s=localStorage.getItem(k); if(s){d.setAttribute('data-theme',s)}}catch(e){}
+  b.addEventListener('click',function(){
+    var n = d.getAttribute('data-theme')==='dark'?'light':'dark';
+    d.setAttribute('data-theme',n);
+    try{localStorage.setItem(k,n)}catch(e){}
+  });
+})();
+</script>
+</body>
+</html>
