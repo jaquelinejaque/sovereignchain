@@ -1,6 +1,6 @@
 [project]
 name = "quorum-ai"
-version = "0.0.1"
+version = "0.1.0"
 description = "Multi-LLM consensus engine with semantic agreement and self-evolution"
 authors = [{ name = "Jaqueline Martins", email = "jaqueline@hsp-protocol.com" }]
 license = { text = "Apache-2.0 WITH HSP-Commercial-Restrictions" }
@@ -8,7 +8,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 keywords = ["llm", "consensus", "multi-model", "ai", "orchestration", "ensemble"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3.10",
@@ -22,6 +22,11 @@ dependencies = [
     "numpy>=1.26",
     "rich>=13.7",
     "typer>=0.12",
+    "reportlab>=4.2",
+    "stripe>=10.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "slowapi>=0.1.9",
 ]
 
 [project.optional-dependencies]
@@ -31,11 +36,13 @@ providers = [
     "openai>=1.30",
     "replicate>=0.32",
 ]
-dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5"]
-all = ["quorum-ai[providers,dev]"]
+storage = ["aiosqlite>=0.20"]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.10"]
+all = ["quorum-ai[providers,storage,dev]"]
 
 [project.scripts]
 quorum = "quorum.cli:app"
+quorum-server = "quorum.server.main:run"
 
 [project.urls]
 Homepage = "https://github.com/jaquelinejaque/sovereignchain"
