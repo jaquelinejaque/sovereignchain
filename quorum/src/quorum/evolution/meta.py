@@ -79,6 +79,24 @@ _EMA_ALPHA: float = 0.3
 DATA_DIR = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
 _DEFAULT_DB_PATH = DATA_DIR / "meta.db"
 
+# ---------------------------------------------------------------------------
+# Online per-(loop, query_class) learning constants
+# ---------------------------------------------------------------------------
+# Quorum consensus design (92% confidence, 5/7 backends agreeing): use a
+# *hybrid* update strategy — confidence-delta as primary signal, loop-fired
+# binary as the gating filter, and cold-start = "enable all" so the learner
+# can discover emergent strengths instead of being biased by initial priors.
+#
+# Minimum samples a (loop, class) pair must accumulate before its measured
+# mean delta is trusted enough to *exclude* a loop. Below this floor, the
+# loop is always recommended (exploration > exploitation while sample-poor).
+_MIN_SAMPLES_FOR_EXCLUSION: int = 5
+
+# A loop is excluded for a class only if its mean confidence_delta is at or
+# below this threshold AND it has enough samples. Set slightly negative so a
+# loop must *consistently hurt* (not just be neutral) to get dropped.
+_EXCLUSION_DELTA_THRESHOLD: float = -1e-6
+
 
 # ---------------------------------------------------------------------------
 # Data types
@@ -184,6 +202,32 @@ class MetaLearner:
                     ts REAL NOT NULL,
                     loops_evaluated INTEGER NOT NULL,
                     notes TEXT
+                );
+
+                -- Online per-(loop, query_class) effect tracker.
+                -- Composite PK is the natural lookup key for `observe` and
+                -- `recommend_loops`; storing aggregates here (sum + count)
+                -- lets us update online with one UPSERT instead of scanning
+                -- the event log on every consensus call.
+                CREATE TABLE IF NOT EXISTS loop_effect (
+                    loop_name TEXT NOT NULL,
+                    query_class TEXT NOT NULL,
+                    fired_count INTEGER NOT NULL DEFAULT 0,
+                    confidence_delta_sum REAL NOT NULL DEFAULT 0.0,
+                    samples INTEGER NOT NULL DEFAULT 0,
+                    last_confidence REAL,
+                    updated_at REAL NOT NULL,
+                    PRIMARY KEY (loop_name, query_class)
+                );
+
+                -- Per-query_class baseline (rolling mean of final confidence).
+                -- Used to compute the *delta* signal even though caller only
+                -- passes the absolute final_confidence to observe().
+                CREATE TABLE IF NOT EXISTS class_baseline (
+                    query_class TEXT PRIMARY KEY,
+                    confidence_sum REAL NOT NULL DEFAULT 0.0,
+                    samples INTEGER NOT NULL DEFAULT 0,
+                    updated_at REAL NOT NULL
                 );
                 """
             )
@@ -407,6 +451,200 @@ class MetaLearner:
     async def weekly_evaluate_async(self) -> dict[str, float]:
         """Async wrapper around :meth:`weekly_evaluate`."""
         return await asyncio.to_thread(self.weekly_evaluate)
+
+    # -- online per-(loop, query_class) learning --------------------------
+    #
+    # Design (validated by Quorum consensus, 92% confidence):
+    #   * ONLINE updates (not nightly batch) so a meta-learner reading the
+    #     table mid-day sees the freshest evidence. We aggregate into sums +
+    #     counts on each call, so cost is O(1) per loop per query.
+    #   * Signal = downstream confidence_delta. Loop-fired binary alone is
+    #     too coarse (misses subtle degradation); a static "suggested-weight"
+    #     is brittle. The delta against the per-class rolling baseline
+    #     captures whether enabling this loop actually moved the needle.
+    #   * Cold start = enable ALL loops. With zero history we don't know
+    #     which loops help; excluding any would create a self-fulfilling
+    #     prophecy ("loop X never fires → never learns it helps → never
+    #     fires"). Exploration > exploitation until samples accumulate.
+
+    def observe(
+        self,
+        query_class: str,
+        loops_fired: Mapping[str, bool],
+        final_confidence: float,
+    ) -> None:
+        """Record one consensus round's loop firings and final confidence.
+
+        Computes confidence_delta = final_confidence - prior_class_baseline,
+        attributes it to every loop that fired this round (positive credit
+        when the loop helped beat baseline, negative when it didn't), then
+        folds final_confidence into the class baseline for the *next* call.
+
+        Sync version; the async wrapper schedules this on a worker thread.
+        """
+        if not isinstance(loops_fired, Mapping):
+            raise TypeError("loops_fired must be a mapping of loop_name -> bool")
+        try:
+            final_confidence = float(final_confidence)
+        except (TypeError, ValueError) as e:
+            raise TypeError(f"final_confidence must be float-like: {e}") from e
+
+        now = time.time()
+        with self._connect() as conn:
+            # 1) Read current baseline so the delta is against the pre-update
+            #    mean (otherwise the loop "explains" its own contribution).
+            row = conn.execute(
+                "SELECT confidence_sum, samples FROM class_baseline "
+                "WHERE query_class = ?",
+                (query_class,),
+            ).fetchone()
+            if row and row["samples"] > 0:
+                baseline = float(row["confidence_sum"]) / int(row["samples"])
+            else:
+                # No history yet → delta is 0 so we only accumulate the
+                # "fired" count and let the baseline catch up over time.
+                baseline = final_confidence
+            delta = final_confidence - baseline
+
+            # 2) Upsert per-(loop, class) effect rows. Only loops that *fired*
+            #    get credit/blame; unfired loops would muddy the signal
+            #    (we can't know what they would have done).
+            for loop_name, fired in loops_fired.items():
+                if not fired:
+                    continue
+                conn.execute(
+                    """
+                    INSERT INTO loop_effect (
+                        loop_name, query_class, fired_count,
+                        confidence_delta_sum, samples,
+                        last_confidence, updated_at
+                    )
+                    VALUES (?, ?, 1, ?, 1, ?, ?)
+                    ON CONFLICT(loop_name, query_class) DO UPDATE SET
+                        fired_count = fired_count + 1,
+                        confidence_delta_sum = confidence_delta_sum + excluded.confidence_delta_sum,
+                        samples = samples + 1,
+                        last_confidence = excluded.last_confidence,
+                        updated_at = excluded.updated_at
+                    """,
+                    (loop_name, query_class, delta, final_confidence, now),
+                )
+
+            # 3) Update the class baseline AFTER we've used the prior value.
+            conn.execute(
+                """
+                INSERT INTO class_baseline (
+                    query_class, confidence_sum, samples, updated_at
+                ) VALUES (?, ?, 1, ?)
+                ON CONFLICT(query_class) DO UPDATE SET
+                    confidence_sum = confidence_sum + excluded.confidence_sum,
+                    samples = samples + 1,
+                    updated_at = excluded.updated_at
+                """,
+                (query_class, final_confidence, now),
+            )
+            conn.commit()
+
+        logger.debug(
+            "meta.observe class=%s delta=%.4f loops=%s",
+            query_class,
+            delta,
+            [n for n, f in loops_fired.items() if f],
+        )
+
+    async def observe_async(
+        self,
+        query_class: str,
+        loops_fired: Mapping[str, bool],
+        final_confidence: float,
+    ) -> None:
+        """Async wrapper; keeps SQLite off the event loop."""
+        await asyncio.to_thread(
+            self.observe, query_class, loops_fired, final_confidence
+        )
+
+    def recommend_loops(
+        self,
+        query_class: str,
+        candidate_loops: Iterable[str] | None = None,
+    ) -> list[str]:
+        """Return the set of loops worth enabling for ``query_class``.
+
+        Policy (per Quorum consensus design):
+          * Cold start: if no history at all for the class, enable every
+            candidate loop (or return [] when no candidates were passed,
+            signalling "no opinion — caller should default to all").
+          * For each known loop:
+              - keep it if mean confidence_delta > threshold;
+              - keep it if samples < ``_MIN_SAMPLES_FOR_EXCLUSION``
+                (exploration phase — not enough evidence to drop);
+              - otherwise drop it.
+          * Unknown loops in ``candidate_loops`` are always kept (zero
+            evidence ⇒ exploration), so newly-added loops bootstrap into
+            the rotation automatically.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT loop_name, samples, confidence_delta_sum
+                FROM loop_effect
+                WHERE query_class = ?
+                """,
+                (query_class,),
+            ).fetchall()
+
+        learned: dict[str, tuple[int, float]] = {
+            r["loop_name"]: (
+                int(r["samples"]),
+                float(r["confidence_delta_sum"]),
+            )
+            for r in rows
+        }
+
+        # No evidence for this class yet → cold start.
+        if not learned and candidate_loops is None:
+            return []
+        if not learned and candidate_loops is not None:
+            return list(dict.fromkeys(candidate_loops))  # dedup, preserve order
+
+        keepers: list[str] = []
+        # Iterate over union of learned + candidates so order is stable and
+        # newly-introduced loops still appear even with zero rows.
+        if candidate_loops is None:
+            universe: list[str] = list(learned.keys())
+        else:
+            seen: set[str] = set()
+            universe = []
+            for name in list(candidate_loops) + list(learned.keys()):
+                if name not in seen:
+                    seen.add(name)
+                    universe.append(name)
+
+        for name in universe:
+            if name not in learned:
+                # Candidate with no evidence yet — explore.
+                keepers.append(name)
+                continue
+            samples, delta_sum = learned[name]
+            if samples < _MIN_SAMPLES_FOR_EXCLUSION:
+                keepers.append(name)
+                continue
+            mean_delta = delta_sum / samples if samples > 0 else 0.0
+            if mean_delta > _EXCLUSION_DELTA_THRESHOLD:
+                keepers.append(name)
+            # else: enough samples AND mean delta is non-positive → drop.
+
+        return keepers
+
+    async def recommend_loops_async(
+        self,
+        query_class: str,
+        candidate_loops: Iterable[str] | None = None,
+    ) -> list[str]:
+        """Async wrapper around :meth:`recommend_loops`."""
+        return await asyncio.to_thread(
+            self.recommend_loops, query_class, candidate_loops
+        )
 
     # -- introspection (handy for dashboards / tests) ---------------------
 
