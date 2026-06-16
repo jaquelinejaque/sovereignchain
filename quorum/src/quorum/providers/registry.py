@@ -73,7 +73,7 @@ def load_default_providers() -> list[Provider]:
     if os.getenv("XAI_API_KEY"):
         from quorum.providers import grok as gk
         providers.append(gk.grok_4())
-        providers.append(gk.grok_4_mini())
+        providers.append(gk.grok_4_20_chat())
 
     # Always try local Ollama (free, runs on user's Mac) — best effort
     try:

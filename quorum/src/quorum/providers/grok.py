@@ -12,17 +12,18 @@ from quorum.providers.base import ModelResponse, Provider
 
 _PRICING: dict[str, tuple[float, float]] = {
     "grok-4-0709": (3.0, 15.0),
-    "grok-4-mini": (0.3, 0.5),
-    "grok-3": (3.0, 15.0),
+    "grok-4.20-0309-non-reasoning": (3.0, 15.0),
+    "grok-4.20-0309-reasoning": (3.0, 15.0),
 }
 
 
 class GrokProvider(Provider):
-    name = "grok-4"
+    name = "grok-4-0709"
 
     def __init__(self, model: str = "grok-4-0709", api_key: str | None = None):
         self.model = model
         self.api_key = api_key or os.getenv("XAI_API_KEY", "")
+        self.name = model
 
     async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
         try:
@@ -72,9 +73,5 @@ def grok_4(api_key: str | None = None) -> GrokProvider:
     return GrokProvider(model="grok-4-0709", api_key=api_key)
 
 
-def grok_4_mini(api_key: str | None = None) -> GrokProvider:
-    return GrokProvider(model="grok-4-mini", api_key=api_key)
-
-
-def grok_3(api_key: str | None = None) -> GrokProvider:
-    return GrokProvider(model="grok-3", api_key=api_key)
+def grok_4_20_chat(api_key: str | None = None) -> GrokProvider:
+    return GrokProvider(model="grok-4.20-0309-non-reasoning", api_key=api_key)
