@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-_GEMINI_MODEL = "text-embedding-004"
+_GEMINI_MODEL = "gemini-embedding-001"
 _GEMINI_ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     f"{_GEMINI_MODEL}:batchEmbedContents"
