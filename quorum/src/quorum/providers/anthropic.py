@@ -43,9 +43,12 @@ class AnthropicProvider(Provider):
             )
 
         if r.status_code != 200:
+            # Sanitise upstream body: decode bytes safely (avoid mid-codepoint splits)
+            # and strip CR/LF so an echoed prompt can't inject fake log lines.
+            safe = r.content[:200].decode("utf-8", "replace").replace("\n", " ").replace("\r", " ")
             return ModelResponse(
                 name=self.name, response="",
-                error=f"http_{r.status_code}: {r.text[:120]}",
+                error=f"http_{r.status_code}: {safe}",
             )
 
         data = r.json()

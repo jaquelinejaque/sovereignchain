@@ -48,6 +48,12 @@ from quorum.providers.registry import load_default_providers
 
 logger = logging.getLogger(__name__)
 
+# Hard caps to prevent adversarial prompt/response amplification:
+# a single oversized input would otherwise fan out into N provider bills,
+# 2N embeddings, and 1 permanent vector-memory write per consensus call.
+MAX_PROMPT_BYTES = 32_000
+MAX_RESPONSE_BYTES = 16_000
+
 
 @dataclass
 class ConsensusResult:
@@ -171,7 +177,9 @@ async def _score_semantic(
         return _jaccard_fallback(valid)
 
     try:
-        texts = [r.response for r in valid]
+        # Truncate each response before embedding to bound cost/latency
+        # against an adversarial provider that returns a megabyte of text.
+        texts = [r.response[:MAX_RESPONSE_BYTES] for r in valid]
         confidence, weights = await semantic_agreement(texts, embedder)
         pairs = await extract_disagreement_pairs(texts, embedder)
     finally:
@@ -286,7 +294,14 @@ async def _ingest_memory(
         mem = MemoryEvolution()
         embedder = EmbeddingProvider.from_env()
         try:
-            await mem.ingest(user_id, prompt, answer, embedder)
+            # Truncate before permanent storage so a single oversized round
+            # cannot bloat the per-user VectorMemory.
+            await mem.ingest(
+                user_id,
+                prompt[:MAX_PROMPT_BYTES],
+                answer[:MAX_RESPONSE_BYTES],
+                embedder,
+            )
         finally:
             await embedder.aclose()
         return True
@@ -318,9 +333,20 @@ async def consensus(
         user_id: Stable id for RLHF/memory scoping. Omit for anonymous calls.
         budget_usd: Hard cap the router uses to drop expensive models.
 
+    Size limits (anti-abuse):
+        ``prompt`` is rejected with ``ValueError`` if it exceeds
+        ``MAX_PROMPT_BYTES`` (32 000 chars). Each provider response is
+        truncated to ``MAX_RESPONSE_BYTES`` (16 000 chars) before embedding
+        and before vector-memory ingest, to bound fan-out cost and storage.
+
     Returns:
         ``ConsensusResult`` with the synthesized answer plus full audit trail.
     """
+    if len(prompt) > MAX_PROMPT_BYTES:
+        raise ValueError(
+            f"prompt too large: {len(prompt)} chars exceeds "
+            f"MAX_PROMPT_BYTES={MAX_PROMPT_BYTES}"
+        )
     if providers is None:
         providers = load_default_providers()
     if not providers:

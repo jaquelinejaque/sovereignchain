@@ -514,7 +514,15 @@ class BillingClient:
         existing = _stripe_sdk.Customer.list(email=email, limit=1)
         if existing.data:
             return dict(existing.data[0])
-        created = _stripe_sdk.Customer.create(email=email)
+        # Stripe is at-least-once on client retries; without an idempotency
+        # key a transient connection reset between request send and response
+        # receive can create two customers with the same email (the
+        # ``list(email=...)`` dedupe above is a TOCTOU window). Hash the
+        # lowercased email so retries collapse to the same key.
+        idem_key = hashlib.sha256(email.lower().encode()).hexdigest()[:32]
+        created = _stripe_sdk.Customer.create(
+            email=email, idempotency_key=idem_key
+        )
         return dict(created)
 
     # ------------------------------------------------------------------
@@ -586,6 +594,13 @@ class BillingClient:
         of compliance bugs.
         """
         assert _stripe_sdk is not None
+        # Idempotency: scope to (customer, price, UTC day) so a network retry
+        # within the same day collapses to one Checkout Session, but the user
+        # can still legitimately start a new flow tomorrow. Prevents Stripe
+        # analytics pollution from duplicate Session creates.
+        day_bucket = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        idem_raw = f"checkout:{customer_id}:{price_id}:{day_bucket}"
+        idem_key = hashlib.sha256(idem_raw.encode()).hexdigest()[:32]
         session = _stripe_sdk.checkout.Session.create(
             customer=customer_id,
             mode="subscription",
@@ -593,6 +608,7 @@ class BillingClient:
             success_url=self._success_url,
             cancel_url=self._cancel_url,
             allow_promotion_codes=True,
+            idempotency_key=idem_key,
         )
         return dict(session)
 
@@ -642,11 +658,17 @@ class BillingClient:
             logger.debug("usage metadata for %s: %s", customer_id, metadata)
 
         if tier == "enterprise" and not self._dev_mode and subscription_id:
+            # Generate the idempotency key BEFORE the (potentially retried)
+            # Stripe call so any retry sees the same key and Stripe collapses
+            # it server-side. A fresh UUID per logical invocation guarantees
+            # distinct legitimate increments stay distinct.
+            usage_idem_key = uuid.uuid4().hex
             try:
                 await asyncio.to_thread(
                     self._stripe_report_usage,
                     subscription_id,
                     query_count,
+                    usage_idem_key,
                 )
             except Exception as exc:  # noqa: BLE001 - intentional swallow
                 logger.warning(
@@ -655,13 +677,26 @@ class BillingClient:
                     exc,
                 )
 
-    def _stripe_report_usage(self, subscription_id: str, quantity: int) -> None:
+    def _stripe_report_usage(
+        self,
+        subscription_id: str,
+        quantity: int,
+        idempotency_key: str,
+    ) -> None:
         """Send a usage record to Stripe for an enterprise subscription.
 
         WHY a dedicated method: usage-billing item resolution (subscription
         item id vs. subscription id) is fiddly and version-dependent;
         isolating it here means we update *one* place when Stripe changes
         the API shape (again).
+
+        WHY ``idempotency_key`` is REQUIRED: enterprise customers are
+        usage-billed. Without it, a retry from the ``asyncio.to_thread``
+        wrapper, an SDK-internal retry on a network blip, or an asyncio
+        cancellation the SDK sees as a hung connection would double-bill
+        the customer. The swallowed exception at the caller means we'd
+        never see it. The caller MUST pass a key it generated BEFORE the
+        call so a retry reuses the same value.
         """
         assert _stripe_sdk is not None
         sub = _stripe_sdk.Subscription.retrieve(subscription_id)
@@ -674,6 +709,7 @@ class BillingClient:
             quantity=quantity,
             timestamp=int(time.time()),
             action="increment",
+            idempotency_key=idempotency_key,
         )
 
     # ------------------------------------------------------------------

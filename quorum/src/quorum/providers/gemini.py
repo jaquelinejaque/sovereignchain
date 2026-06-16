@@ -31,15 +31,22 @@ class GeminiProvider(Provider):
 
         url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{self.model}:generateContent?key={self.api_key}"
+            f"{self.model}:generateContent"
         )
         payload: dict[str, Any] = {
             "contents": [{"parts": [{"text": prompt}]}],
             "generationConfig": {"temperature": 0.4, "maxOutputTokens": max_tokens},
         }
+        headers = {
+            "x-goog-api-key": self.api_key,
+            "Content-Type": "application/json",
+        }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            r = await client.post(url, json=payload)
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                r = await client.post(url, json=payload, headers=headers)
+        except httpx.HTTPError:
+            return ModelResponse(name=self.name, response="", error="network_error")
 
         if r.status_code != 200:
             return ModelResponse(
