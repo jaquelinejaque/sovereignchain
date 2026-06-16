@@ -310,6 +310,28 @@ async def _ingest_memory(
         return False
 
 
+async def _maybe_ingest_synthetic(
+    prompt: str,
+    result: "ConsensusResult",
+    user_id: str | None,
+    opt_in: bool,
+) -> None:
+    """Fire-and-forget ingest into the synthetic training corpus.
+
+    Kept off the response path: callers see the consensus result the
+    moment it is synthesized; the corpus append happens in the background
+    via ``asyncio.create_task`` (or skipped entirely on import failure).
+    """
+    if not opt_in:
+        return
+    try:
+        from quorum.evolution.synthetic_data import SyntheticDatasetStore
+        store = SyntheticDatasetStore()
+        await store.maybe_ingest(prompt, result, user_id=user_id, opt_in=True)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("synthetic ingest skipped (%s)", e)
+
+
 async def consensus(
     prompt: str,
     *,
@@ -319,6 +341,7 @@ async def consensus(
     user_id: str | None = None,
     budget_usd: float = 0.05,
     route: bool = True,
+    opt_in_synthetic: bool = False,
 ) -> ConsensusResult:
     """Run N LLMs in parallel and synthesize a consensus answer.
 
@@ -414,7 +437,7 @@ async def consensus(
 
     memory_fired = await _ingest_memory(user_id, prompt, canonical.response)
 
-    return ConsensusResult(
+    result = ConsensusResult(
         answer=canonical.response,
         confidence=confidence,
         embedding_confidence=confidence,
@@ -432,6 +455,20 @@ async def consensus(
         hebbian_boost_applied=hebbian_mean,
         rlhf_weights_applied=rlhf_applied,
     )
+
+    # Synthetic-data ingest (opt-in, fire-and-forget so the response is not
+    # blocked by a JSONL disk write). Default is opt_in=False for privacy —
+    # the caller has to explicitly request it per-query.
+    if opt_in_synthetic:
+        try:
+            asyncio.create_task(
+                _maybe_ingest_synthetic(prompt, result, user_id, True)
+            )
+        except RuntimeError:
+            # No running event loop (extremely rare here, but defensive).
+            await _maybe_ingest_synthetic(prompt, result, user_id, True)
+
+    return result
 
 
 async def consensus_ab(

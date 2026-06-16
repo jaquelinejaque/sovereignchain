@@ -1105,6 +1105,35 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
         # Stripe wants a 200 + small JSON ack; anything else triggers retries.
         return result.model_dump(mode="json")
 
+    # ---------- synthetic-data corpus stats ---------------------------------
+
+    @app.get("/v1/synthetic/stats", tags=["evolution"])
+    async def get_synthetic_stats(
+        request: Request,
+        api_record: APIKeyRecord = Depends(_require_api_key),
+    ) -> dict[str, Any]:
+        """Aggregate counts over the opt-in synthetic-training corpus.
+
+        WHY auth-required: the stats themselves are anonymous (per-user
+        counts only, no prompts or answers), but the *existence* of the
+        corpus is a paid-tier feature and we don't want unauthenticated
+        scraping. The response shape is the same dict that
+        :meth:`SyntheticDatasetStore.stats` returns.
+        """
+        # Lazy import keeps the server bootable when the evolution loops
+        # aren't on the path (e.g. minimal deploys).
+        from quorum.evolution.synthetic_data import SyntheticDatasetStore
+
+        del request  # auth-only dependency
+        store = SyntheticDatasetStore()
+        stats = await store.stats()
+        logger.debug(
+            "synthetic stats requested by %s: total=%d",
+            api_record.user_id,
+            stats.get("total_examples", 0),
+        )
+        return stats
+
     # ---------- certificate (HSP-gated) -------------------------------------
 
     @app.get(

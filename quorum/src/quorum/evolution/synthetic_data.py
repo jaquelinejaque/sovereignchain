@@ -61,17 +61,23 @@ distillation pass picks up the new corpus. The orchestrator is expected to:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import re
 import time
+from collections import OrderedDict
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Final, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Final, Protocol, runtime_checkable
 
 from quorum.hsp.gate import requires_hsp_approval
 from quorum.providers.base import ModelResponse, Provider
+
+if TYPE_CHECKING:
+    from quorum.core.consensus import ConsensusResult
 
 logger = logging.getLogger(__name__)
 
@@ -661,8 +667,302 @@ Hope that helps!"""
     assert _parse_pairs('{"not": "a list"}') == []
 
 
+# --------------------------------------------------------------------------- #
+# SyntheticDatasetStore — consensus-derived training corpus
+# --------------------------------------------------------------------------- #
+#
+# WHY THIS LIVES NEXT TO THE GENERATOR
+# ====================================
+# Loop 9 has two complementary ingestion paths:
+#
+#   1. SyntheticDataGenerator  — actively pays a premium model to manufacture
+#      Q&A pairs in domains where Llama is weak (cold-start, HSP-gated).
+#   2. SyntheticDatasetStore   — passively skims high-confidence consensus
+#      results during normal traffic and persists them as training examples
+#      (warm-loop, opt-in per user).
+#
+# Both feed the same Loop 5 distillation pass, but path (2) is essentially
+# free: the consensus already ran for a paying customer. Keeping them in one
+# module makes it obvious they share the same downstream consumer.
+#
+# PRIVACY / OPT-IN
+# ================
+# Customer prompts are sensitive by default. The store NEVER persists unless
+# the caller passes opt_in=True. Even then, the JSONL row carries an opaque
+# user_id, and export_jsonl(anonymize=True) strips it before sharing.
+#
+# DEDUP
+# =====
+# Real traffic has heavy near-duplicate prompts ("write hello world",
+# "what is 2+2", system-prompt boilerplate). We hash-dedup on a sliding
+# in-memory window so we don't bloat the corpus or over-weight common
+# prompts during distillation. The window is intentionally bounded — full
+# dedup across the entire file would require either loading every line on
+# startup (slow) or a sidecar index (complexity Loop 5 doesn't need).
+
+#: Path under QUORUM_DATA_DIR where the JSONL corpus lives.
+_SYNTH_DATASET_FILENAME: Final[str] = "synthetic_dataset.jsonl"
+
+#: How many recent prompt hashes to remember for dedup. ~1000 covers a
+#: typical interactive session; beyond that the marginal cost of writing a
+#: rare duplicate is dominated by the cost of keeping a huge set in memory.
+_DEDUP_WINDOW: Final[int] = 1000
+
+#: Default minimum confidence to ingest. 0.85 picks the strongest answers
+#: (semantic agreement well above coin flip) without being so strict that
+#: only trivial prompts qualify.
+_DEFAULT_MIN_CONFIDENCE: Final[float] = 0.85
+
+
+def _data_dir() -> Path:
+    """Resolve the JSONL corpus directory honouring ``QUORUM_DATA_DIR``.
+
+    WHY a function rather than a module-level constant: tests want to point
+    a fresh env var at a tmpdir per case, and a module constant would
+    snapshot the value at import time.
+    """
+    raw = os.environ.get("QUORUM_DATA_DIR") or str(Path.home() / ".quorum")
+    return Path(raw).expanduser()
+
+
+def _prompt_hash(prompt: str) -> str:
+    """SHA-256 of the prompt, truncated to 16 hex chars (~64 bits).
+
+    WHY only 16 chars: dedup is a best-effort cache scan, not a security
+    boundary. 64 bits gives ~1 collision per 4 billion prompts — fine for a
+    sliding-window dedup, and keeps the JSONL row small.
+    """
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+
+
+class SyntheticDatasetStore:
+    """Append-only JSONL store of high-confidence consensus answers.
+
+    The store is process-local: each instance keeps its own dedup window and
+    its own write lock. Multiple instances pointed at the same file path
+    will still write safely (each append is one ``write`` syscall ending in
+    ``\\n``), but the dedup window is per-instance, so two instances may
+    each write the same prompt once. That's acceptable for a best-effort
+    training corpus.
+
+    Parameters
+    ----------
+    path:
+        Override the default ``${QUORUM_DATA_DIR}/synthetic_dataset.jsonl``.
+        Mostly used by tests.
+    dedup_window:
+        How many recent ``prompt_hash`` values to remember.
+    """
+
+    def __init__(
+        self,
+        *,
+        path: Path | str | None = None,
+        dedup_window: int = _DEDUP_WINDOW,
+    ) -> None:
+        if path is None:
+            self._path = _data_dir() / _SYNTH_DATASET_FILENAME
+        else:
+            self._path = Path(path).expanduser()
+        self._dedup_window = max(1, int(dedup_window))
+        # Sliding-window set of recent prompt hashes; OrderedDict gives us
+        # O(1) "drop oldest" without an external library.
+        self._recent_hashes: OrderedDict[str, None] = OrderedDict()
+        self._lock = asyncio.Lock()
+
+    # ----------------------------------------------------------------- #
+    # Ingest
+    # ----------------------------------------------------------------- #
+
+    async def maybe_ingest(
+        self,
+        prompt: str,
+        result: "ConsensusResult",
+        *,
+        user_id: str | None = None,
+        opt_in: bool = False,
+        min_confidence: float = _DEFAULT_MIN_CONFIDENCE,
+    ) -> bool:
+        """Append (prompt, winning answer) to the corpus if all gates pass.
+
+        Returns ``True`` if the row was actually written. Returns ``False``
+        (silently — this is a side path, never user-visible) when:
+
+        * ``opt_in`` is False (default-deny for privacy),
+        * the consensus confidence is below ``min_confidence``,
+        * the prompt exceeds ``MAX_PROMPT_BYTES`` (re-used from consensus.py
+          so we never persist anything the engine itself would have rejected),
+        * the prompt has already been ingested within the dedup window,
+        * the answer is empty.
+        """
+        if not opt_in:
+            return False
+
+        # Import lazily so this module stays importable without consensus.
+        from quorum.core.consensus import MAX_PROMPT_BYTES
+
+        if not prompt or len(prompt) > MAX_PROMPT_BYTES:
+            return False
+
+        answer = (result.answer or "").strip()
+        if not answer:
+            return False
+
+        confidence = float(result.confidence or 0.0)
+        if confidence < float(min_confidence):
+            return False
+
+        phash = _prompt_hash(prompt)
+
+        async with self._lock:
+            if phash in self._recent_hashes:
+                # Refresh recency so a repeatedly-asked prompt stays in the
+                # window rather than expiring and getting re-ingested.
+                self._recent_hashes.move_to_end(phash)
+                return False
+
+            row = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "prompt_hash": phash,
+                "prompt": prompt,
+                "answer": answer,
+                "confidence": round(confidence, 6),
+                "models": [
+                    {
+                        "name": m.name,
+                        "weight": round(float(getattr(m, "weight", 0.0) or 0.0), 6),
+                    }
+                    for m in (result.models or [])
+                    if not getattr(m, "error", "")
+                ],
+                "user_id": user_id,
+            }
+
+            await asyncio.to_thread(self._append_line, row)
+
+            self._recent_hashes[phash] = None
+            if len(self._recent_hashes) > self._dedup_window:
+                self._recent_hashes.popitem(last=False)
+
+        return True
+
+    def _append_line(self, row: dict[str, Any]) -> None:
+        """Synchronous append of one JSONL row. Called via ``to_thread``.
+
+        WHY a separate sync method: ``open(..., "a")`` + ``write`` is a
+        blocking syscall; running it on the event-loop thread would stall
+        every other consensus call sharing the loop.
+        """
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        line = json.dumps(row, ensure_ascii=False)
+        with self._path.open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+
+    # ----------------------------------------------------------------- #
+    # Stats
+    # ----------------------------------------------------------------- #
+
+    async def stats(self) -> dict[str, Any]:
+        """Return aggregate counts over the persisted corpus.
+
+        The shape is intentionally minimal — total count, per-user counts
+        (anonymous: keys are the user_id strings as-stored, no extra
+        joining), and the timestamp range. No prompts or answers are
+        returned, so this is safe to expose over an authenticated HTTP
+        endpoint without further PII review.
+        """
+        return await asyncio.to_thread(self._stats_sync)
+
+    def _stats_sync(self) -> dict[str, Any]:
+        total = 0
+        by_user: dict[str, int] = {}
+        ts_min: str | None = None
+        ts_max: str | None = None
+
+        if not self._path.exists():
+            return {
+                "total_examples": 0,
+                "by_user": {},
+                "date_range": {"min": None, "max": None},
+            }
+
+        with self._path.open("r", encoding="utf-8") as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError:
+                    # Corrupt line — skip rather than crash the stats call.
+                    continue
+                total += 1
+                uid = row.get("user_id")
+                key = uid if uid is not None else "_anon_"
+                by_user[key] = by_user.get(key, 0) + 1
+                ts = row.get("ts")
+                if isinstance(ts, str):
+                    if ts_min is None or ts < ts_min:
+                        ts_min = ts
+                    if ts_max is None or ts > ts_max:
+                        ts_max = ts
+
+        return {
+            "total_examples": total,
+            "by_user": by_user,
+            "date_range": {"min": ts_min, "max": ts_max},
+        }
+
+    # ----------------------------------------------------------------- #
+    # Export
+    # ----------------------------------------------------------------- #
+
+    async def export_jsonl(
+        self,
+        out_path: Path | str,
+        *,
+        anonymize: bool = True,
+    ) -> int:
+        """Copy the corpus to ``out_path``, optionally stripping ``user_id``.
+
+        Returns the number of rows written. The output is fresh JSONL
+        (one valid JSON object per line), even if the source file has
+        legacy corrupt rows — those are silently dropped, same policy as
+        :meth:`stats`.
+        """
+        out = Path(out_path).expanduser()
+        return await asyncio.to_thread(self._export_sync, out, anonymize)
+
+    def _export_sync(self, out_path: Path, anonymize: bool) -> int:
+        if not self._path.exists():
+            out_path.parent.mkdir(parents=True, exist_ok=True)
+            out_path.write_text("", encoding="utf-8")
+            return 0
+
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        written = 0
+        with (
+            self._path.open("r", encoding="utf-8") as src,
+            out_path.open("w", encoding="utf-8") as dst,
+        ):
+            for raw in src:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    row = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if anonymize:
+                    row.pop("user_id", None)
+                dst.write(json.dumps(row, ensure_ascii=False) + "\n")
+                written += 1
+        return written
+
+
 __all__ = [
     "SyntheticDataGenerator",
+    "SyntheticDatasetStore",
     "SyntheticSample",
     "RLHFTrackerLike",
 ]
