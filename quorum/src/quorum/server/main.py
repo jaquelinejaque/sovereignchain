@@ -94,7 +94,7 @@ from fastapi import (
     status,
 )
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from quorum import __version__ as QUORUM_VERSION
@@ -603,6 +603,180 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
     obvious where new routes go. Also makes it easy to A/B versions of a
     handler from a test without rebuilding the whole app.
     """
+
+    # ---------- landing page (root) ------------------------------------------
+
+    @app.get("/", response_class=HTMLResponse, tags=["meta"])
+    async def landing() -> HTMLResponse:
+        """Self-contained HTML landing page for cold visitors.
+
+        WHY this exists: Cloud Run logs showed real browsers hitting
+        ``https://quorum-ai.dev/`` and getting 404 because every route was
+        prefixed with ``/v1/``. A landing page converts those visitors
+        without a separate static-hosting layer (no S3, no CDN, no extra
+        deploy). Inlining the HTML keeps the request path single-hop and
+        dependency-free.
+        """
+        html = f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Quorum &mdash; Multi-LLM Consensus</title>
+<meta name="description" content="8 LLMs in parallel for $0.000001 per query. Semantic agreement scoring across Claude, GPT, Gemini, Llama, DeepSeek, Phi, Mistral. BYOK.">
+<style>
+  :root {{
+    --bg: #0a0a0a;
+    --fg: #e4e4e4;
+    --muted: #8a8a8a;
+    --accent: #10a37f;
+    --card: #131313;
+    --border: #222;
+    --code-bg: #0f0f0f;
+  }}
+  * {{ box-sizing: border-box; }}
+  html, body {{ margin: 0; padding: 0; background: var(--bg); color: var(--fg); }}
+  body {{
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    line-height: 1.6;
+    font-size: 16px;
+  }}
+  code, pre, .mono {{ font-family: "SF Mono", Menlo, Consolas, "Courier New", monospace; }}
+  main {{ max-width: 920px; margin: 0 auto; padding: 64px 24px; }}
+  .brand {{ font-size: 14px; color: var(--accent); letter-spacing: 2px; text-transform: uppercase; }}
+  h1 {{ font-size: 56px; margin: 12px 0 8px; letter-spacing: -1.5px; font-weight: 700; }}
+  .tagline {{ font-size: 22px; color: var(--muted); margin: 0 0 32px; }}
+  .lede {{ font-size: 17px; color: var(--fg); max-width: 700px; }}
+  .lede strong {{ color: var(--accent); }}
+  .ctas {{ display: flex; flex-wrap: wrap; gap: 12px; margin: 40px 0; }}
+  .cta {{
+    display: inline-block;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    text-decoration: none;
+    padding: 14px 20px;
+    border-radius: 6px;
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: 14px;
+    transition: border-color 0.15s, color 0.15s;
+  }}
+  .cta:hover {{ border-color: var(--accent); color: var(--accent); }}
+  .cta::before {{ content: "$ "; color: var(--muted); }}
+  section {{ margin: 48px 0; }}
+  h2 {{ font-size: 14px; text-transform: uppercase; letter-spacing: 2px; color: var(--muted); margin: 0 0 16px; }}
+  pre.snippet {{
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 16px 20px;
+    overflow-x: auto;
+    color: var(--fg);
+    font-size: 13px;
+    margin: 0;
+  }}
+  pre.snippet .k {{ color: var(--accent); }}
+  pre.snippet .s {{ color: #d29922; }}
+  .pricing {{ display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }}
+  .tier {{
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 24px;
+  }}
+  .tier.pro {{ border-color: var(--accent); position: relative; }}
+  .tier.pro::after {{
+    content: "POPULAR";
+    position: absolute;
+    top: -10px; right: 16px;
+    background: var(--accent);
+    color: #000;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 3px;
+    letter-spacing: 1px;
+  }}
+  .tier h3 {{ margin: 0 0 8px; font-size: 18px; }}
+  .tier .price {{ font-size: 28px; font-weight: 700; margin: 0 0 4px; }}
+  .tier .price small {{ font-size: 14px; color: var(--muted); font-weight: 400; }}
+  .tier .quota {{ font-size: 13px; color: var(--muted); margin: 0; }}
+  footer {{
+    border-top: 1px solid var(--border);
+    margin-top: 64px;
+    padding-top: 24px;
+    color: var(--muted);
+    font-size: 13px;
+  }}
+  footer a {{ color: var(--muted); }}
+  footer .line {{ margin: 4px 0; }}
+  @media (max-width: 640px) {{
+    main {{ padding: 40px 18px; }}
+    h1 {{ font-size: 38px; }}
+    .tagline {{ font-size: 18px; }}
+    .pricing {{ grid-template-columns: 1fr; }}
+    .ctas {{ flex-direction: column; }}
+    .cta {{ text-align: left; }}
+  }}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand">Quorum</div>
+  <h1>Quorum</h1>
+  <p class="tagline">8 LLMs in parallel for $0.000001 per query.</p>
+
+  <p class="lede">
+    Quorum runs your prompt across <strong>Claude, GPT, Gemini, Llama, DeepSeek, Phi, and Mistral</strong>
+    simultaneously, then scores semantic agreement to surface the answer the models converge on
+    (and flag the ones where they don&rsquo;t). Bring your own API keys, self-host under Apache 2.0,
+    or use the hosted SaaS with audit-grade EU AI Act certificates.
+  </p>
+
+  <div class="ctas">
+    <a class="cta" href="https://github.com/jaquelinejaque/sovereignchain">View on GitHub</a>
+    <a class="cta" href="https://marketplace.visualstudio.com/items?itemName=sovereignchain.quorum-vscode">Install VS Code Extension</a>
+    <a class="cta" href="/docs">API Docs</a>
+  </div>
+
+  <section>
+    <h2>Live health check</h2>
+<pre class="snippet"><span class="k">GET</span> /v1/healthz
+{{
+  "status": <span class="s">"ok"</span>,
+  "version": <span class="s">"{QUORUM_VERSION}"</span>
+}}</pre>
+  </section>
+
+  <section>
+    <h2>Pricing</h2>
+    <div class="pricing">
+      <div class="tier">
+        <h3>Free</h3>
+        <p class="price">&pound;0 <small>/ month</small></p>
+        <p class="quota">100 queries / month &mdash; BYOK only</p>
+      </div>
+      <div class="tier pro">
+        <h3>Pro</h3>
+        <p class="price">&pound;49 <small>/ month</small></p>
+        <p class="quota">10,000 queries + EU AI Act certs</p>
+      </div>
+      <div class="tier">
+        <h3>Team</h3>
+        <p class="price">&pound;199 <small>/ month</small></p>
+        <p class="quota">100,000 queries &mdash; contact sales</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="line">Apache 2.0 &middot; HSP patent PCT/US26/11908 &middot; Made in the UK</div>
+    <div class="line">&copy; Sovereign Chain Ltd. &middot; <a href="/docs">API</a> &middot; <a href="/v1/healthz">Status</a></div>
+  </footer>
+</main>
+</body>
+</html>"""
+        return HTMLResponse(content=html)
 
     # ---------- health -------------------------------------------------------
 
