@@ -12,9 +12,16 @@ from rich.panel import Panel
 from rich.table import Table
 
 from quorum.core.consensus import consensus
+from quorum.doctor import run_doctor
 
 app = typer.Typer(no_args_is_help=True, help="Quorum — multi-LLM consensus engine")
 console = Console()
+
+
+@app.command()
+def doctor():
+    """Detect cross-config conflicts (pyproject ↔ Dockerfile ↔ env) before deploy."""
+    raise typer.Exit(code=run_doctor())
 
 
 @app.command()

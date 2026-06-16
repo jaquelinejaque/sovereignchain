@@ -79,7 +79,8 @@ TOPOLOGIES: Final[tuple[Topology, ...]] = (
     "hierarchical",
 )
 
-DEFAULT_DB_PATH: Final[Path] = Path.home() / ".quorum" / "arch.db"
+DATA_DIR: Final[Path] = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+DEFAULT_DB_PATH: Final[Path] = DATA_DIR / "arch.db"
 
 # Confidence below which a cascade escalates to the next tier.
 CASCADE_ESCALATE_THRESHOLD: Final[float] = 0.55

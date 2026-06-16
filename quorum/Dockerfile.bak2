@@ -44,7 +44,6 @@ COPY pyproject.toml ./
 RUN uv pip install --no-cache --requirement pyproject.toml
 
 # Copy the actual source and install the project itself (editable=False)
-COPY README.md ./
 COPY src ./src
 RUN uv pip install --no-cache --no-deps .
 
@@ -81,9 +80,6 @@ COPY --chown=quorum:quorum pyproject.toml ./
 COPY --chown=quorum:quorum src ./src
 
 # Drop privileges
-# Pre-create writable data dir for SQLite stores (api_keys, usage, memory, etc).
-# /app is otherwise read-only for non-root, so api_key_store/memory/etc would fail.
-RUN mkdir -p /app/.quorum && chown -R quorum:quorum /app/.quorum
 USER quorum:quorum
 
 EXPOSE 8080

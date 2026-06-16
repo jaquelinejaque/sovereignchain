@@ -55,7 +55,8 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-DEFAULT_DB_PATH = Path.home() / ".quorum" / "federated.db"
+DATA_DIR = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+DEFAULT_DB_PATH = DATA_DIR / "federated.db"
 AGREEMENT_THRESHOLD = 0.9
 DEFAULT_TOP_K = 20
 DEFAULT_EPSILON = 1.0

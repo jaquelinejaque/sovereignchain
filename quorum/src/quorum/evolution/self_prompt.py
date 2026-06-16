@@ -166,6 +166,9 @@ _OFFLINE_ADDONS: tuple[str, ...] = (
 )
 
 
+DATA_DIR = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+
+
 def _default_db_path() -> Path:
     """Return the on-disk location of ``prompts.db``.
 
@@ -175,7 +178,7 @@ def _default_db_path() -> Path:
     override = os.getenv("QUORUM_PROMPTS_DB")
     if override:
         return Path(override).expanduser()
-    return Path.home() / ".quorum" / "prompts.db"
+    return DATA_DIR / "prompts.db"
 
 
 # ---------------------------------------------------------------------------

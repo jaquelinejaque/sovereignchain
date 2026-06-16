@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 # Storage location
 # ---------------------------------------------------------------------------
 
-_DEFAULT_DB_PATH = Path.home() / ".quorum" / "router.db"
+DATA_DIR = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+_DEFAULT_DB_PATH = DATA_DIR / "router.db"
 
 # Exponential moving average weight for new observations.
 # 0.2 ≈ "remember the last ~5 samples primarily, fade older history slowly".

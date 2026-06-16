@@ -61,7 +61,8 @@ _VALID_KINDS: frozenset[str] = frozenset(
     {"query", "response", "correction", "preference", "fact"}
 )
 
-DEFAULT_DB_PATH: Path = Path.home() / ".quorum" / "memory.db"
+DATA_DIR = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+DEFAULT_DB_PATH: Path = DATA_DIR / "memory.db"
 
 
 # ---------------------------------------------------------------------------

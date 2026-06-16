@@ -76,7 +76,8 @@ _PRIORITY_WINDOW: int = 8
 _EMA_ALPHA: float = 0.3
 
 # Default DB path under user home so multiple Quorum installs share state.
-_DEFAULT_DB_PATH = Path(os.path.expanduser("~/.quorum/meta.db"))
+DATA_DIR = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+_DEFAULT_DB_PATH = DATA_DIR / "meta.db"
 
 
 # ---------------------------------------------------------------------------

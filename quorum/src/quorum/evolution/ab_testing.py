@@ -56,7 +56,8 @@ logger = logging.getLogger(__name__)
 # Constants
 # --------------------------------------------------------------------------- #
 
-_DEFAULT_DB_PATH: Final[Path] = Path.home() / ".quorum" / "abtest.db"
+DATA_DIR: Final[Path] = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+_DEFAULT_DB_PATH: Final[Path] = DATA_DIR / "abtest.db"
 _PROMOTE_THRESHOLD: Final[float] = 0.05  # +5% lift required to promote variant B.
 _VARIANT_A: Final[str] = "A"
 _VARIANT_B: Final[str] = "B"

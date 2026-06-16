@@ -79,11 +79,13 @@ docker-compose*.yml
 .dockerignore
 
 # --- Docs / misc not needed in image -------------------------------------
+README.md
 CHANGELOG.md
 CONTRIBUTING.md
 LICENSE
 docs/
 landing/
+*.md
 !src/**/*.md
 
 # --- Logs -----------------------------------------------------------------

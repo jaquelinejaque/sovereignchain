@@ -145,8 +145,9 @@ logger = logging.getLogger("quorum.server")
 # limits are an *operational* knob — they may need to change without a
 # pricing change. Keeping them in two files keeps blast radius small.
 
-_DEFAULT_API_KEY_DB = Path.home() / ".quorum" / "api_keys.db"
-_DEFAULT_CERT_DIR = Path.home() / ".quorum" / "certs"
+DATA_DIR = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+_DEFAULT_API_KEY_DB = DATA_DIR / "api_keys.db"
+_DEFAULT_CERT_DIR = DATA_DIR / "certs"
 
 _TIER_RATE_LIMITS: dict[Tier, str] = {
     "free": "60/minute",

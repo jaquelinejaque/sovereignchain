@@ -108,6 +108,8 @@ class BenchmarkResult:
 # ---------------------------------------------------------------------------
 
 
+DATA_DIR = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+
 # Frontier models we trust enough to consider their consensus a label.
 # Other models in the log (local Llama, smaller open models) are NOT used
 # as labellers — they're the students, not the teachers.
@@ -142,12 +144,12 @@ class DistillationPipeline:
         frontier_models: Iterable[str] | None = None,
         min_improvement: float = 0.0,
     ) -> None:
-        self.log_path = Path(log_path or Path.home() / ".quorum" / "queries.jsonl")
+        self.log_path = Path(log_path or DATA_DIR / "queries.jsonl")
         self.eval_set_path = Path(
-            eval_set_path or Path.home() / ".quorum" / "eval_set.jsonl"
+            eval_set_path or DATA_DIR / "eval_set.jsonl"
         )
         self.artifacts_dir = Path(
-            artifacts_dir or Path.home() / ".quorum" / "distillation"
+            artifacts_dir or DATA_DIR / "distillation"
         )
         self.artifacts_dir.mkdir(parents=True, exist_ok=True)
 

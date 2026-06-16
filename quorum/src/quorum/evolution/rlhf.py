@@ -73,8 +73,10 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
+DATA_DIR = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+
 #: Where the SQLite file lives. Override with ``QUORUM_RLHF_DB`` for tests.
-_DEFAULT_DB_PATH = Path.home() / ".quorum" / "rlhf.db"
+_DEFAULT_DB_PATH = DATA_DIR / "rlhf.db"
 
 #: Learning rate for the SGD update. Spec'd by the task. Don't tune without
 #: re-checking the convergence note in the module docstring.

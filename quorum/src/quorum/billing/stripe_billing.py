@@ -263,7 +263,8 @@ def _period_reset_at(period_key: str) -> datetime:
 # mutates the ``tier`` column in the steady state.
 
 
-_DEFAULT_DB_PATH = Path.home() / ".quorum" / "usage.db"
+DATA_DIR = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+_DEFAULT_DB_PATH = DATA_DIR / "usage.db"
 
 
 def _connect(db_path: Path) -> sqlite3.Connection:

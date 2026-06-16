@@ -79,6 +79,9 @@ MIN_BOOST: float = 1.0
 # -- Helpers ----------------------------------------------------------------
 
 
+DATA_DIR = Path(os.getenv("QUORUM_DATA_DIR", str(Path.home() / ".quorum"))).expanduser()
+
+
 def _default_db_path() -> Path:
     """Resolve the default SQLite path.
 
@@ -88,7 +91,7 @@ def _default_db_path() -> Path:
     override = os.environ.get("QUORUM_HEBBIAN_DB")
     if override:
         return Path(override)
-    return Path.home() / ".quorum" / "hebbian.db"
+    return DATA_DIR / "hebbian.db"
 
 
 def _canonical_pair(model_a: str, model_b: str) -> tuple[str, str]:
