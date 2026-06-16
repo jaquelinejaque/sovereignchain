@@ -6,5 +6,5 @@ Patent: PCT/US26/11908 (HSP Protocol).
 
 from quorum.core.consensus import ConsensusResult, consensus
 
-__version__ = "0.1.4"
+__version__ = "0.1.5"
 __all__ = ["consensus", "ConsensusResult"]
