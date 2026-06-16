@@ -844,6 +844,325 @@ async def _run_all_tests() -> None:
     logger.info("self_prompt: all self-tests passed")
 
 
+# ---------------------------------------------------------------------------
+# PromptRewriter — query-time self-prompting loop
+# ---------------------------------------------------------------------------
+#
+# This sits ABOVE the SelfPromptOptimizer (which is a long-horizon, per-model
+# system-prompt bandit). The rewriter operates on a single consensus call:
+# when the first pass's consensus confidence is below threshold, it asks the
+# strongest available model to *rewrite the user query itself* — clarifying
+# ambiguous terms and decomposing complex sub-questions — and the consensus
+# engine re-runs with the rewritten prompt.
+#
+# Design (Quorum-validated, 2026-06-17):
+#   * Clarification + decomposition combined in one rewrite (single model
+#     call cheaper than two; both failure modes share root cause = vague
+#     query that no single model could disambiguate).
+#   * Append-as-context rather than full replace: the original is preserved
+#     verbatim under an ORIGINAL_QUERY marker so the downstream consensus
+#     pass cannot silently lose user intent. The strongest model's expansion
+#     follows under a CLARIFIED_QUERY marker.
+#   * Default max_attempts=2 (one rewrite is the cheap win; a second is
+#     occasionally helpful when the first rewrite was itself ambiguous;
+#     three or more is dominated by the original failing on a hard query).
+#
+# Storage: SQLite at ``$QUORUM_DATA_DIR/self_prompt.db`` — a separate file
+# from prompts.db so the meta-learner can scan it without joining against
+# the variant bandit. The schema records (original, rewritten, before/after
+# confidence, query_class, timestamp) so a downstream model can fit a
+# classifier on "which classes benefit from rewriting".
+
+
+DEFAULT_REWRITE_CONFIDENCE_THRESHOLD = 0.6
+DEFAULT_REWRITE_MAX_ATTEMPTS = 2
+
+
+def _default_rewrite_db_path() -> Path:
+    """Location of ``self_prompt.db`` — distinct from ``prompts.db``.
+
+    Honors ``QUORUM_SELF_PROMPT_DB`` for tests that need isolation; falls
+    back to ``$QUORUM_DATA_DIR/self_prompt.db`` (default ``~/.quorum/``).
+    """
+    override = os.getenv("QUORUM_SELF_PROMPT_DB")
+    if override:
+        return Path(override).expanduser()
+    return DATA_DIR / "self_prompt.db"
+
+
+_REWRITE_INSTRUCTION_TEMPLATE = """\
+You are a query-clarification expert. A multi-LLM consensus engine ran the
+following USER_QUERY and the models disagreed (consensus confidence
+{confidence:.2f}, below the {threshold:.2f} threshold). Query class: {query_class}.
+
+Rewrite the query so it is unambiguous and actionable by an ensemble of LLMs:
+  (a) Clarify any ambiguous terms, implicit assumptions, or under-specified
+      goals.
+  (b) If the query has multiple sub-questions, decompose it into an explicit
+      enumerated list of sub-questions.
+  (c) Preserve the user's intent — do not invent constraints they did not
+      state. When in doubt, prefer narrowing over expanding scope.
+
+Return ONLY the rewritten query as plain text. No preamble, no markdown
+fences, no quotation marks, no commentary about what you changed.
+
+USER_QUERY:
+{prompt}
+"""
+
+
+def _format_rewritten_prompt(original: str, rewritten: str) -> str:
+    """Compose the final prompt sent to the second consensus pass.
+
+    Append-as-context (not replace) so the downstream models still see the
+    user's exact words alongside the rewriter's expansion. We delimit with
+    explicit MARKER lines instead of just blank lines so providers that
+    do prompt-injection sanitisation can spot the boundary.
+    """
+    return (
+        "ORIGINAL_QUERY:\n"
+        f"{original.strip()}\n"
+        "\n"
+        "CLARIFIED_QUERY (auto-expanded after a low-confidence consensus pass):\n"
+        f"{rewritten.strip()}"
+    )
+
+
+@dataclass
+class PromptRewriter:
+    """Rewrites a low-consensus prompt using the strongest available model.
+
+    Wires into :func:`quorum.core.consensus.consensus`: after the first pass
+    the engine inspects the confidence; if below ``confidence_threshold``
+    the rewriter is invoked and the consensus runs again on the rewritten
+    prompt. The original confidence and the post-rewrite confidence are
+    logged to SQLite so the meta-learner can later decide whether to skip
+    the rewrite entirely for some query classes (negative ROI).
+
+    Why a dataclass: every field has a defensible default (the DB path, the
+    threshold, the attempt cap). Tests can override individual fields
+    without monkeypatching globals.
+    """
+
+    db_path: Path = field(default_factory=_default_rewrite_db_path)
+    confidence_threshold: float = DEFAULT_REWRITE_CONFIDENCE_THRESHOLD
+    max_attempts: int = DEFAULT_REWRITE_MAX_ATTEMPTS
+    rewriter_provider: Optional[GeneratorProvider] = None
+
+    def __post_init__(self) -> None:
+        self.db_path = Path(self.db_path).expanduser()
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        if not (0.0 <= self.confidence_threshold <= 1.0):
+            raise ValueError(
+                f"confidence_threshold must be in [0, 1]; got "
+                f"{self.confidence_threshold}"
+            )
+        if self.max_attempts < 1:
+            raise ValueError(
+                f"max_attempts must be >= 1; got {self.max_attempts}"
+            )
+        self._init_schema()
+
+    # ---- schema ---------------------------------------------------------
+
+    def _connect(self) -> sqlite3.Connection:
+        """Short-lived SQLite connection with WAL — same pattern as the
+        bandit. Fresh per call so we are safe under :func:`asyncio.to_thread`.
+        """
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
+        return conn
+
+    def _init_schema(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS rewrites (
+                    id                   TEXT PRIMARY KEY,
+                    original             TEXT NOT NULL,
+                    rewritten            TEXT NOT NULL,
+                    original_confidence  REAL NOT NULL,
+                    new_confidence       REAL NOT NULL,
+                    delta                REAL NOT NULL,
+                    query_class          TEXT NOT NULL DEFAULT 'general',
+                    rewriter_name        TEXT NOT NULL DEFAULT '',
+                    created_at           REAL NOT NULL
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_rewrites_class "
+                "ON rewrites(query_class, created_at)"
+            )
+            conn.commit()
+
+    # ---- public API -----------------------------------------------------
+
+    async def rewrite(
+        self,
+        prompt: str,
+        current_confidence: float,
+        query_class: str = "general",
+    ) -> Optional[str]:
+        """Return a rewritten prompt or ``None`` if rewriting is unnecessary.
+
+        Returns ``None`` (the caller should keep the original answer) when:
+          * ``current_confidence`` is already >= ``confidence_threshold``;
+          * no rewriter provider is available (no Anthropic key, no OpenAI
+            key, and no override was injected) — silent no-op rather than
+            raising, so the consensus call degrades gracefully.
+
+        Otherwise returns the composed prompt (original preserved as
+        context, plus the rewriter's clarified expansion).
+        """
+        if not prompt:
+            raise ValueError("prompt must be non-empty")
+
+        # Confidence above threshold → no rewrite needed. The consensus
+        # engine can keep its first-pass result.
+        if current_confidence >= self.confidence_threshold:
+            return None
+
+        provider = self.rewriter_provider or _resolve_rewriter_provider()
+        if provider is None:
+            logger.debug(
+                "self_prompt.rewrite: no rewriter provider available; "
+                "returning None (consensus will keep first-pass result)"
+            )
+            return None
+
+        instruction = _REWRITE_INSTRUCTION_TEMPLATE.format(
+            prompt=prompt[:MAX_REWRITE_INPUT_BYTES],
+            confidence=current_confidence,
+            threshold=self.confidence_threshold,
+            query_class=query_class or "general",
+        )
+
+        try:
+            resp = await provider.complete(instruction, max_tokens=600)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "self_prompt.rewrite: rewriter %s raised: %s",
+                getattr(provider, "name", "<unknown>"), exc,
+            )
+            return None
+
+        text = getattr(resp, "response", "") or ""
+        err = getattr(resp, "error", "") or ""
+        cleaned = _clean_template(text)
+        if err or not cleaned:
+            logger.warning(
+                "self_prompt.rewrite: empty/error from rewriter "
+                "(err=%r) — returning None", err,
+            )
+            return None
+
+        return _format_rewritten_prompt(prompt, cleaned)
+
+    async def log_rewrite(
+        self,
+        original: str,
+        rewritten: str,
+        original_confidence: float,
+        new_confidence: float,
+        *,
+        query_class: str = "general",
+        rewriter_name: str = "",
+    ) -> str:
+        """Persist a rewrite outcome so the meta-learner can learn from it.
+
+        ``delta = new_confidence - original_confidence`` is precomputed so
+        downstream SQL can ``AVG(delta) GROUP BY query_class`` without
+        recomputation. Returns the row id (uuid hex) so tests can fetch it.
+        """
+        rid = uuid.uuid4().hex
+        delta = float(new_confidence) - float(original_confidence)
+        now = time.time()
+        await asyncio.to_thread(
+            self._log_rewrite_sync,
+            rid, original, rewritten, float(original_confidence),
+            float(new_confidence), delta, query_class, rewriter_name, now,
+        )
+        logger.info(
+            "self_prompt.log_rewrite: class=%s before=%.3f after=%.3f "
+            "delta=%+.3f rewriter=%s",
+            query_class, original_confidence, new_confidence, delta,
+            rewriter_name or "<unset>",
+        )
+        return rid
+
+    def _log_rewrite_sync(
+        self,
+        rid: str,
+        original: str,
+        rewritten: str,
+        original_confidence: float,
+        new_confidence: float,
+        delta: float,
+        query_class: str,
+        rewriter_name: str,
+        now: float,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO rewrites
+                    (id, original, rewritten, original_confidence,
+                     new_confidence, delta, query_class, rewriter_name,
+                     created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (rid, original, rewritten, original_confidence,
+                 new_confidence, delta, query_class, rewriter_name, now),
+            )
+            conn.commit()
+
+    async def get_rewrite(self, rid: str) -> Optional[dict[str, Any]]:
+        """Fetch a single rewrite row by id (used by tests + dashboards)."""
+        return await asyncio.to_thread(self._get_rewrite_sync, rid)
+
+    def _get_rewrite_sync(self, rid: str) -> Optional[dict[str, Any]]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM rewrites WHERE id = ?", (rid,)
+            ).fetchone()
+            return dict(row) if row else None
+
+
+# Hard cap on the size of the prompt we hand to the rewriter — bounds the
+# token bill if a user accidentally pastes an entire transcript.
+MAX_REWRITE_INPUT_BYTES = 8_000
+
+
+def _resolve_rewriter_provider() -> Optional[GeneratorProvider]:
+    """Pick the strongest available rewriter, preferring Claude Sonnet.
+
+    Lazy-import so this module imports cleanly with no provider keys set
+    (tests, air-gapped CI). Order:
+      1. AnthropicProvider(claude-sonnet-4-6) if ANTHROPIC_API_KEY set —
+         Sonnet is the cost-quality sweet spot for query rewriting; Opus
+         is overkill, Haiku occasionally produces lazy rewrites.
+      2. OpenAIProvider(gpt-4.1) if OPENAI_API_KEY set — fallback when no
+         Anthropic key.
+      3. None — signals to ``rewrite()`` that it should no-op silently.
+    """
+    if os.getenv("ANTHROPIC_API_KEY"):
+        try:
+            from quorum.providers.anthropic import claude_sonnet
+            return claude_sonnet()  # type: ignore[return-value]
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("self_prompt: anthropic import failed (%s)", exc)
+    if os.getenv("OPENAI_API_KEY"):
+        try:
+            from quorum.providers.openai import OpenAIProvider
+            return OpenAIProvider(model="gpt-4.1")  # type: ignore[return-value]
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("self_prompt: openai import failed (%s)", exc)
+    return None
+
+
 if __name__ == "__main__":
     logging.basicConfig(
         level=logging.INFO, format="%(levelname)s %(name)s: %(message)s"
