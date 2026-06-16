@@ -47,6 +47,11 @@ def load_default_providers() -> list[Provider]:
         providers.append(nv.dracarys_70b_nvidia())
         providers.append(nv.llama_3_3_nvidia())
 
+    if os.getenv("DEEPSEEK_API_KEY"):
+        from quorum.providers import deepseek as ds
+        providers.append(ds.deepseek_chat())
+        providers.append(ds.deepseek_reasoner())
+
     if os.getenv("MISTRAL_API_KEY"):
         from quorum.providers import mistral as ms
         providers.append(ms.mistral_large())
