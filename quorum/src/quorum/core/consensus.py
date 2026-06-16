@@ -238,12 +238,18 @@ async def _apply_rlhf_and_hebbian(
             logger.debug("RLHF read failed (%s); skipping", e)
 
     # Hebbian: query pair boosts and update the matrix from this round.
+    # We run *both* engines:
+    #   * HebbianMatrix  — legacy global running-mean, used by the router.
+    #   * HebbianStore   — per-(pair, query_class) EMA, multiplies the boost
+    #                       once it has SAMPLE_THRESHOLD observations.
+    # If either errors we degrade gracefully (boost = 1.0); the consensus
+    # call is never broken by a Hebbian outage.
     mean_boost = 1.0
+    pair_boosts: dict[tuple[str, str], float] = {}
     try:
         from quorum.evolution.hebbian import HebbianMatrix
         matrix = HebbianMatrix()
         names = [r.name for r in valid]
-        pair_boosts: dict[tuple[str, str], float] = {}
         pair_sims: dict[tuple[str, str], float] = {}
         boost_vals: list[float] = []
         for i in range(len(names)):
@@ -261,8 +267,32 @@ async def _apply_rlhf_and_hebbian(
         # Online learning: record the round so future calls benefit.
         await matrix.record_round(valid, pair_sims, reward=confidence)
     except Exception as e:  # noqa: BLE001
-        logger.debug("Hebbian path skipped (%s)", e)
-        pair_boosts = {}
+        logger.debug("Hebbian matrix path skipped (%s)", e)
+
+    # HebbianStore (per-class EMA) — multiplicatively layered on top of
+    # HebbianMatrix.  observe() always runs (so the EMA learns from this
+    # round) but boost() returns 1.0 until SAMPLE_THRESHOLD is reached, so
+    # cold-start is safe.
+    try:
+        from quorum.evolution.hebbian import _get_default_store
+        store = await _get_default_store()
+        names = [r.name for r in valid]
+        store_vals: list[float] = []
+        for i in range(len(names)):
+            for j in range(i + 1, len(names)):
+                sb = await store.boost(names[i], names[j], query_class)
+                key = (names[i], names[j])
+                # Compose multiplicatively with the existing matrix boost.
+                pair_boosts[key] = pair_boosts.get(key, 1.0) * sb
+                store_vals.append(sb)
+        if store_vals:
+            store_mean = sum(store_vals) / len(store_vals)
+            mean_boost = mean_boost * store_mean
+        # Observe AFTER reading boost so the value we just applied was a
+        # genuine prior, not contaminated by the round we're scoring.
+        await store.observe(query_class, valid)
+    except Exception as e:  # noqa: BLE001
+        logger.debug("HebbianStore path skipped (%s)", e)
 
     # Apply multipliers, then renormalise to a probability distribution.
     new: list[float] = []
@@ -278,6 +308,30 @@ async def _apply_rlhf_and_hebbian(
     total = sum(new) or 1.0
     new = [w / total for w in new]
     return new, rlhf_map, mean_boost
+
+
+async def _record_competition(
+    valid: list[ModelResponse],
+    canonical_answer: str,
+    query_class: str,
+) -> bool:
+    """Feed the natural pairwise battles into the ELO leaderboard.
+
+    Best-effort: any failure here MUST NOT block the consensus answer
+    returning. The store derives (winner, loser) pairs from each query's
+    own responses against the canonical answer — zero extra LLM calls,
+    pure post-processing on what we already paid for above.
+    """
+    if not canonical_answer or len(valid) < 2:
+        return False
+    try:
+        from quorum.evolution.competition import CompetitionStore
+        store = CompetitionStore()
+        applied = await store.record_query(query_class, valid, canonical_answer)
+        return applied > 0
+    except Exception as e:  # noqa: BLE001
+        logger.debug("competition store record_query skipped (%s)", e)
+        return False
 
 
 async def _ingest_memory(
@@ -386,6 +440,24 @@ async def consensus(
     else:
         selected, router_names, query_class = list(providers), [], "general"
 
+    # Loop 6 — Meta-learning hint: ask the meta-learner which evolution
+    # loops it currently believes are worth firing for this query_class.
+    # Stored locally as ``_meta_recommended`` so future patches can gate
+    # sibling loops; today it is observational (logged only) so this
+    # wire-in is risk-free and unit-testable in isolation.
+    try:
+        from quorum.evolution.meta import MetaLearner
+
+        _meta_recommended = await MetaLearner().recommend_loops_async(
+            query_class,
+            candidate_loops=["router", "rlhf", "hebbian", "memory"],
+        )
+        logger.debug(
+            "meta.recommend_loops class=%s -> %s", query_class, _meta_recommended
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("meta.recommend_loops skipped (%s)", e)
+
     semaphore = asyncio.Semaphore(max_concurrency)
 
     async def _call(p: Provider) -> ModelResponse:
@@ -436,6 +508,32 @@ async def consensus(
     disagreements = [n for n in disagreements if not (n in seen or seen.add(n))]
 
     memory_fired = await _ingest_memory(user_id, prompt, canonical.response)
+    competition_fired = await _record_competition(
+        valid, canonical.response, query_class
+    )
+
+    evolution_signals = {
+        "router": bool(router_names),
+        "rlhf": bool(rlhf_applied),
+        "hebbian": hebbian_mean != 1.0,
+        "memory": memory_fired,
+        "competition": competition_fired,
+    }
+
+    # Loop 6 — Meta-learning: observe which loops fired and the resulting
+    # final confidence so future calls can disable consistently-unhelpful
+    # loops per query class. Best-effort: never let a logging failure
+    # poison the response path.
+    try:
+        from quorum.evolution.meta import MetaLearner
+
+        await MetaLearner().observe_async(
+            query_class=query_class,
+            loops_fired=evolution_signals,
+            final_confidence=confidence,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("meta.observe skipped (%s)", e)
 
     result = ConsensusResult(
         answer=canonical.response,
@@ -443,12 +541,7 @@ async def consensus(
         embedding_confidence=confidence,
         models=responses,
         disagreements=disagreements,
-        evolution_signals={
-            "router": bool(router_names),
-            "rlhf": bool(rlhf_applied),
-            "hebbian": hebbian_mean != 1.0,
-            "memory": memory_fired,
-        },
+        evolution_signals=evolution_signals,
         total_cost_usd=sum(r.cost_usd for r in responses),
         total_latency_ms=(time.perf_counter() - t_start) * 1000,
         router_used=router_names,

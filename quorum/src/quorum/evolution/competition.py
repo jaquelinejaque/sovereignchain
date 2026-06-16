@@ -59,7 +59,8 @@ import random
 import sqlite3
 import time
 from dataclasses import dataclass, field
-from typing import Any, Protocol, Sequence
+from pathlib import Path
+from typing import Any, Iterable, Protocol, Sequence
 
 from quorum.providers.base import ModelResponse, Provider
 
@@ -706,6 +707,373 @@ async def maybe_run_competition(
         rlhf_tracker = build_default_tracker()
     await comp.apply_to_rlhf(rlhf_tracker, user_id, query_class, result)
     return result
+
+
+# ---------------------------------------------------------------------------
+# CompetitionStore — ELO-style pairwise ranking from natural query traffic.
+# ---------------------------------------------------------------------------
+#
+# WHY a second mechanism alongside ModelCompetition
+# -------------------------------------------------
+# ModelCompetition runs *explicit* tournaments at 5%% sampling: an extra
+# judge call per duel, deliberately paid for. The store below is the
+# *implicit* sibling: every regular consensus call already produces N
+# answers for the same prompt — that's a free pairwise battlefield. We
+# decide winners by "who agrees most with the consensus answer" (cheap
+# lexical similarity; the consensus engine already paid for the embedding
+# cost upstream, but we don't carry it across the call boundary), and
+# fold the outcome into per-(model, query_class) ELO ratings.
+#
+# WHO WINS without ground truth
+# -----------------------------
+# Quorum design consensus (Gemini + Llama + Claude + Grok, 2026-06-16):
+# pick (a) — similarity to the current top-weighted (consensus) answer —
+# as the *base* signal. RLHF feedback (b) can layer on later via a
+# blended observation, but we don't gate the loop on its availability.
+# Rationale: similarity-to-canonical is always available, always cheap,
+# and converges to the same ranking as RLHF in the limit because the
+# top-weighted answer is itself shaped by RLHF priors.
+#
+# WHY K=16 not 32
+# ---------------
+# Standard chess uses K=32 with one battle per pairing per event. We get
+# (N choose 2) battles per query, dozens of queries per minute. K=32
+# would let a single noisy query swing a rating by ~96 points; K=16
+# halves that to ~48, still letting ratings move meaningfully but
+# preventing one bad day from steamrollering a model's reputation.
+# Quorum panel confirmed: "lower K is correct when you have many
+# correlated observations per event."
+#
+# WHY per-query-class
+# -------------------
+# A model that's excellent at code may be mediocre at creative writing.
+# A global ELO would average those signals into mush and the router
+# couldn't pick "the best fighter for this query." We key on the
+# router's existing classify_query() taxonomy so the rankings drop
+# straight into MoERouter without translation.
+#
+# WHY similarity = word-overlap (Jaccard)
+# ---------------------------------------
+# Two reasons. (1) The store is called inside the consensus hot path; we
+# can't justify a second embedding round-trip on every query. (2) For
+# the *pairwise* comparison we only need a monotone proxy for "closer to
+# canonical." Jaccard on lowercased token sets is monotone with
+# semantic similarity at the granularity that matters here (was your
+# answer roughly in the same lexical neighbourhood as the winner?) and
+# never crashes when the embedding backend is unreachable.
+
+
+_ELO_DEFAULT_RATING: float = 1500.0
+"""Standard ELO start rating. Every (model, query_class) row materialises
+here on first observation so nobody is privileged on day one."""
+
+_ELO_K_FACTOR: float = 16.0
+"""See module note above for why this is 16, not 32."""
+
+_ELO_DB_FILENAME: str = "competition.db"
+"""Lives under ``${QUORUM_DATA_DIR}/competition.db`` (default ``~/.quorum``)."""
+
+
+def _default_competition_db_path() -> Path:
+    """Resolve the ELO SQLite path honouring ``QUORUM_DATA_DIR``.
+
+    Resolved at call time (not import time) so tests can monkeypatch
+    ``QUORUM_DATA_DIR`` per case without having to reload the module.
+    """
+    raw = os.environ.get("QUORUM_DATA_DIR") or str(Path.home() / ".quorum")
+    return Path(raw).expanduser() / _ELO_DB_FILENAME
+
+
+def _jaccard_similarity(a: str, b: str) -> float:
+    """Cheap symmetric similarity in [0, 1] used to decide pairwise winners.
+
+    Lowercased word-set overlap. Empty-vs-empty returns 0.0 (degenerate;
+    we never want a battle between two no-answers to count as a clean
+    win for either side). One-side-empty returns 0.0 so the non-empty
+    side strictly wins.
+    """
+    sa = set(a.lower().split())
+    sb = set(b.lower().split())
+    if not sa or not sb:
+        return 0.0
+    return len(sa & sb) / len(sa | sb)
+
+
+def _expected_score(rating_a: float, rating_b: float) -> float:
+    """Classic ELO expected-score formula.
+
+    Returns the probability that A beats B given their current ratings.
+    Used for both the prediction step (so a high-rated model needs less
+    confirmation to climb further) and the update step (delta is
+    proportional to surprise = actual - expected).
+    """
+    return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
+
+
+def _derive_pairwise_battles(
+    responses: Sequence[ModelResponse],
+    consensus_answer: str,
+) -> list[tuple[str, str]]:
+    """Turn a single query into (winner_name, loser_name) battle tuples.
+
+    Per Quorum design: for each unordered pair (i, j) of valid responses,
+    whichever response has higher Jaccard similarity to the consensus
+    answer wins that battle. Ties are silently dropped — no signal, no
+    update — because feeding ties into ELO at K=16 is just noise.
+
+    The consensus answer is one of the responses by construction
+    (canonical = top-weighted response). That response will tie itself
+    against itself with similarity 1.0 (which we exclude via the i<j
+    iteration anyway) and will tend to win every pair it's in. This is
+    intentional: the top-weighted model is the round's de facto winner.
+    """
+    valid = [r for r in responses if r.response and not r.error]
+    out: list[tuple[str, str]] = []
+    sims = [_jaccard_similarity(r.response, consensus_answer) for r in valid]
+    n = len(valid)
+    for i in range(n):
+        for j in range(i + 1, n):
+            si, sj = sims[i], sims[j]
+            if si == sj:
+                # Either both identical to the consensus or both equally
+                # far from it. No information; skip.
+                continue
+            if si > sj:
+                out.append((valid[i].name, valid[j].name))
+            else:
+                out.append((valid[j].name, valid[i].name))
+    return out
+
+
+@dataclass(slots=True, frozen=True)
+class EloRow:
+    """Read-only snapshot of one (model, query_class) row.
+
+    Frozen because callers (dashboards, the router) treat ratings as a
+    quoted price — mutation would let a downstream bug silently rewrite
+    the leaderboard.
+    """
+
+    model_name: str
+    query_class: str
+    rating: float
+    games: int
+    updated_at: float
+
+
+class CompetitionStore:
+    """SQLite-backed ELO leaderboard keyed by ``(model_name, query_class)``.
+
+    All disk I/O is wrapped in ``asyncio.to_thread`` so the event loop is
+    never blocked — the consensus hot path calls ``record_query`` once
+    per query and must not stall on a write. ``WAL`` is enabled for the
+    same reason (concurrent readers from CLI / dashboards never block
+    the writer).
+    """
+
+    def __init__(self, db_path: Path | str | None = None) -> None:
+        self.db_path = Path(db_path) if db_path else _default_competition_db_path()
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_lock = asyncio.Lock()
+        self._initialized = False
+
+    # -- schema -----------------------------------------------------------
+
+    def _connect(self) -> sqlite3.Connection:
+        # check_same_thread=False because asyncio.to_thread may move us
+        # between worker threads. WAL journalling keeps reads concurrent
+        # with writes — the router will scan rankings frequently.
+        conn = sqlite3.connect(self.db_path, check_same_thread=False)
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+
+    def _ensure_schema_sync(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS elo (
+                    model_name  TEXT NOT NULL,
+                    query_class TEXT NOT NULL,
+                    rating      REAL NOT NULL,
+                    games       INTEGER NOT NULL DEFAULT 0,
+                    updated_at  REAL NOT NULL,
+                    PRIMARY KEY (model_name, query_class)
+                )
+                """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_elo_class_rating "
+                "ON elo(query_class, rating DESC)"
+            )
+            conn.commit()
+
+    async def _ensure_schema(self) -> None:
+        async with self._init_lock:
+            if self._initialized:
+                return
+            await asyncio.to_thread(self._ensure_schema_sync)
+            self._initialized = True
+
+    # -- core read helpers ------------------------------------------------
+
+    def _get_rating_sync(self, model_name: str, query_class: str) -> tuple[float, int]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT rating, games FROM elo "
+                "WHERE model_name=? AND query_class=?",
+                (model_name, query_class),
+            ).fetchone()
+        if row is None:
+            return _ELO_DEFAULT_RATING, 0
+        return float(row[0]), int(row[1])
+
+    async def get_rating(self, model_name: str, query_class: str) -> tuple[float, int]:
+        """Return ``(rating, games_played)``; default rating if absent.
+
+        Used by tests and by the router when it needs to bias provider
+        selection. New (model, class) pairs return 1500.0 / 0 — the
+        canonical ELO unseen-player default.
+        """
+        await self._ensure_schema()
+        return await asyncio.to_thread(self._get_rating_sync, model_name, query_class)
+
+    # -- core write -------------------------------------------------------
+
+    def _observe_battle_sync(
+        self, query_class: str, winner: str, loser: str
+    ) -> tuple[float, float]:
+        """One battle = two row writes inside a single transaction.
+
+        Returning the new ratings is a convenience for logs and tests;
+        the persisted values are the source of truth.
+        """
+        now = time.time()
+        with self._connect() as conn:
+            # Read both rows first so the rating delta is symmetric.
+            win_row = conn.execute(
+                "SELECT rating, games FROM elo "
+                "WHERE model_name=? AND query_class=?",
+                (winner, query_class),
+            ).fetchone()
+            los_row = conn.execute(
+                "SELECT rating, games FROM elo "
+                "WHERE model_name=? AND query_class=?",
+                (loser, query_class),
+            ).fetchone()
+            r_w = float(win_row[0]) if win_row else _ELO_DEFAULT_RATING
+            g_w = int(win_row[1]) if win_row else 0
+            r_l = float(los_row[0]) if los_row else _ELO_DEFAULT_RATING
+            g_l = int(los_row[1]) if los_row else 0
+
+            # Classic ELO update. Winner's actual score = 1, expected
+            # depends on the gap. A higher-rated winner gains less; a
+            # lower-rated upset gains more. Symmetric for the loser.
+            exp_w = _expected_score(r_w, r_l)
+            new_r_w = r_w + _ELO_K_FACTOR * (1.0 - exp_w)
+            new_r_l = r_l + _ELO_K_FACTOR * (0.0 - (1.0 - exp_w))
+
+            conn.execute(
+                """
+                INSERT INTO elo (model_name, query_class, rating, games, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(model_name, query_class) DO UPDATE SET
+                    rating=excluded.rating,
+                    games=excluded.games,
+                    updated_at=excluded.updated_at
+                """,
+                (winner, query_class, new_r_w, g_w + 1, now),
+            )
+            conn.execute(
+                """
+                INSERT INTO elo (model_name, query_class, rating, games, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(model_name, query_class) DO UPDATE SET
+                    rating=excluded.rating,
+                    games=excluded.games,
+                    updated_at=excluded.updated_at
+                """,
+                (loser, query_class, new_r_l, g_l + 1, now),
+            )
+            conn.commit()
+        return new_r_w, new_r_l
+
+    async def observe_battle(
+        self, query_class: str, winner: str, loser: str
+    ) -> tuple[float, float]:
+        """Apply one ELO update. Returns ``(winner_rating, loser_rating)`` post-update.
+
+        Self-battles (winner == loser) are no-ops: feeding them in would
+        be a bug, and silently logging them as draws would hide it.
+        """
+        if winner == loser:
+            logger.debug("observe_battle skipped: self-battle %s", winner)
+            cur, _ = await self.get_rating(winner, query_class)
+            return cur, cur
+        await self._ensure_schema()
+        return await asyncio.to_thread(
+            self._observe_battle_sync, query_class, winner, loser
+        )
+
+    async def record_query(
+        self,
+        query_class: str,
+        responses: Sequence[ModelResponse],
+        consensus_answer: str,
+    ) -> int:
+        """Derive pairwise battles from one query, persist all ELO updates.
+
+        Returns the number of battles actually applied (zero if every
+        pair tied or fewer than two valid responses came back). Failures
+        in one battle don't abort the rest — each pair is its own write
+        transaction, so a transient SQLite hiccup degrades gracefully.
+        """
+        if not consensus_answer:
+            return 0
+        battles = _derive_pairwise_battles(responses, consensus_answer)
+        if not battles:
+            return 0
+        applied = 0
+        for winner, loser in battles:
+            try:
+                await self.observe_battle(query_class, winner, loser)
+                applied += 1
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "ELO observe_battle failed (winner=%s loser=%s class=%s): %s",
+                    winner,
+                    loser,
+                    query_class,
+                    e,
+                )
+        return applied
+
+    # -- read for router / dashboards -------------------------------------
+
+    def _get_rankings_sync(
+        self, query_class: str, top_n: int
+    ) -> list[tuple[str, float]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT model_name, rating FROM elo "
+                "WHERE query_class=? "
+                "ORDER BY rating DESC LIMIT ?",
+                (query_class, top_n),
+            ).fetchall()
+        return [(str(r[0]), float(r[1])) for r in rows]
+
+    async def get_rankings(
+        self, query_class: str, top_n: int = 8
+    ) -> list[tuple[str, float]]:
+        """Top-N models for one class, sorted by rating descending.
+
+        ``top_n=8`` matches the consensus engine's default fan-out cap —
+        the router will typically request exactly the number of fighters
+        it intends to enter into the next round of consensus.
+        """
+        if top_n <= 0:
+            return []
+        await self._ensure_schema()
+        return await asyncio.to_thread(self._get_rankings_sync, query_class, top_n)
 
 
 # ---------------------------------------------------------------------------
