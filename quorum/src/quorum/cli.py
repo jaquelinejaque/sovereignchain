@@ -28,9 +28,23 @@ def doctor():
 def ask(
     prompt: str = typer.Argument(..., help="Your question"),
     json_output: bool = typer.Option(False, "--json", help="Output raw JSON"),
+    all_providers: bool = typer.Option(
+        False, "--all", "--no-router",
+        help="Skip MoE router; fan out to every configured provider (use for demos)",
+    ),
+    budget: float = typer.Option(
+        0.05, "--budget", help="Hard cap on total spend per query (USD)",
+    ),
 ):
     """Run a query across all configured LLMs and print the consensus."""
-    result = asyncio.run(consensus(prompt))
+    if all_providers:
+        from quorum.providers.registry import load_default_providers
+        providers = load_default_providers()
+        result = asyncio.run(consensus(
+            prompt, providers=providers, budget_usd=10.0, route=False,
+        ))
+    else:
+        result = asyncio.run(consensus(prompt, budget_usd=budget))
 
     if json_output:
         console.print_json(json.dumps(result.to_dict()))

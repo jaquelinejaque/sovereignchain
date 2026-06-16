@@ -318,6 +318,7 @@ async def consensus(
     timeout_s: float = 30.0,
     user_id: str | None = None,
     budget_usd: float = 0.05,
+    route: bool = True,
 ) -> ConsensusResult:
     """Run N LLMs in parallel and synthesize a consensus answer.
 
@@ -355,9 +356,12 @@ async def consensus(
             "GOOGLE_AI_STUDIO_KEY, REPLICATE_API_TOKEN, or run Ollama locally."
         )
 
-    selected, router_names, query_class = await _route_providers(
-        prompt, user_id, providers, budget_usd
-    )
+    if route:
+        selected, router_names, query_class = await _route_providers(
+            prompt, user_id, providers, budget_usd
+        )
+    else:
+        selected, router_names, query_class = list(providers), [], "general"
 
     semaphore = asyncio.Semaphore(max_concurrency)
 

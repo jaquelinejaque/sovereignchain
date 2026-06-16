@@ -37,6 +37,16 @@ def load_default_providers() -> list[Provider]:
         # providers.append(r.qwen_2_5())
         # providers.append(r.phi_4())
 
+    # NVIDIA AI Foundation — one key, multiple frontier OSS models (free tier)
+    if os.getenv("NVIDIA_API_KEY"):
+        from quorum.providers import nvidia as nv
+        providers.append(nv.llama_3_2_3b_nvidia())
+        providers.append(nv.llama_3_1_8b_nvidia())
+        providers.append(nv.llama_4_maverick_nvidia())
+        providers.append(nv.deepseek_v4_nvidia())
+        providers.append(nv.dracarys_70b_nvidia())
+        providers.append(nv.llama_3_3_nvidia())
+
     # Always try local Ollama (free, runs on user's Mac) — best effort
     try:
         from quorum.providers.ollama import OllamaProvider
