@@ -10,8 +10,14 @@ import httpx
 
 from quorum.providers.base import ModelResponse, Provider
 
-_INPUT_PER_1M = 2.50
-_OUTPUT_PER_1M = 10.0
+# Pricing per 1M tokens (USD, 2026-06).
+_PRICING: dict[str, tuple[float, float]] = {
+    "gpt-5": (5.0, 15.0),
+    "gpt-5-mini": (0.4, 1.6),
+    "gpt-4.1": (2.0, 8.0),
+    "gpt-4o": (2.5, 10.0),
+    "gpt-4o-mini": (0.15, 0.6),
+}
 
 
 class OpenAIProvider(Provider):
@@ -20,6 +26,7 @@ class OpenAIProvider(Provider):
     def __init__(self, model: str = "gpt-5", api_key: str | None = None):
         self.model = model
         self.api_key = api_key or os.getenv("OPENAI_API_KEY", "")
+        self.name = model
 
     async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
         try:
@@ -30,30 +37,31 @@ class OpenAIProvider(Provider):
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             }
+            # GPT-5 family rejects `max_tokens`; expects `max_completion_tokens`.
+            tokens_field = "max_completion_tokens" if self.model.startswith("gpt-5") else "max_tokens"
             payload: dict[str, Any] = {
                 "model": self.model,
                 "messages": [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
+                tokens_field: max_tokens,
             }
 
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=60.0) as client:
                 r = await client.post(
                     "https://api.openai.com/v1/chat/completions",
                     headers=headers, json=payload,
                 )
 
             if r.status_code != 200:
-                return ModelResponse(
-                    name=self.name, response="",
-                    error=f"http_{r.status_code}: {r.text[:120]}",
-                )
+                safe = r.content[:200].decode("utf-8", "replace").replace("\n", " ").replace("\r", " ")
+                return ModelResponse(name=self.name, response="", error=f"http_{r.status_code}: {safe}")
 
             try:
                 data = r.json()
                 text = data["choices"][0]["message"]["content"]
                 usage = data.get("usage", {})
                 ti, to = usage.get("prompt_tokens", 0), usage.get("completion_tokens", 0)
-                cost = (ti * _INPUT_PER_1M + to * _OUTPUT_PER_1M) / 1_000_000
+                in_rate, out_rate = _PRICING.get(self.model, (2.5, 10.0))
+                cost = (ti * in_rate + to * out_rate) / 1_000_000
             except (KeyError, IndexError, ValueError, TypeError, json.JSONDecodeError):
                 return ModelResponse(name=self.name, response="", error="parse_error")
 
@@ -62,3 +70,19 @@ class OpenAIProvider(Provider):
             )
         except Exception:
             return ModelResponse(name=self.name, response="", error="internal_error")
+
+
+def gpt_5() -> OpenAIProvider:
+    return OpenAIProvider(model="gpt-5")
+
+
+def gpt_5_mini() -> OpenAIProvider:
+    return OpenAIProvider(model="gpt-5-mini")
+
+
+def gpt_4_1() -> OpenAIProvider:
+    return OpenAIProvider(model="gpt-4.1")
+
+
+def gpt_4o_mini() -> OpenAIProvider:
+    return OpenAIProvider(model="gpt-4o-mini")

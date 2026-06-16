@@ -9,17 +9,21 @@ import httpx
 
 from quorum.providers.base import ModelResponse, Provider
 
-# Pricing per 1M tokens (rough June 2026; verify in production)
-_INPUT_PER_1M = 3.0
-_OUTPUT_PER_1M = 15.0
+# Pricing per 1M tokens (USD, current as of 2026-06; per-model below).
+_PRICING: dict[str, tuple[float, float]] = {
+    "claude-opus-4-8": (15.0, 75.0),
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-4-5-20251001": (0.8, 4.0),
+}
 
 
 class AnthropicProvider(Provider):
-    name = "claude-opus"
+    name = "claude-sonnet-4-6"
 
-    def __init__(self, model: str = "claude-opus-4-7-20251022", api_key: str | None = None):
+    def __init__(self, model: str = "claude-sonnet-4-6", api_key: str | None = None):
         self.model = model
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
+        self.name = model
 
     async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
         if not self.api_key:
@@ -55,8 +59,21 @@ class AnthropicProvider(Provider):
         text = "".join(b.get("text", "") for b in data.get("content", []))
         usage = data.get("usage", {})
         ti, to = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
-        cost = (ti * _INPUT_PER_1M + to * _OUTPUT_PER_1M) / 1_000_000
+        in_rate, out_rate = _PRICING.get(self.model, (3.0, 15.0))
+        cost = (ti * in_rate + to * out_rate) / 1_000_000
 
         return ModelResponse(
             name=self.name, response=text, tokens_in=ti, tokens_out=to, cost_usd=cost,
         )
+
+
+def claude_opus() -> AnthropicProvider:
+    return AnthropicProvider(model="claude-opus-4-8")
+
+
+def claude_sonnet() -> AnthropicProvider:
+    return AnthropicProvider(model="claude-sonnet-4-6")
+
+
+def claude_haiku() -> AnthropicProvider:
+    return AnthropicProvider(model="claude-haiku-4-5-20251001")

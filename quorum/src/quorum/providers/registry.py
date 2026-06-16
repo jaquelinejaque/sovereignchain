@@ -16,12 +16,18 @@ def load_default_providers() -> list[Provider]:
 
     # Paid — only if key is set
     if os.getenv("ANTHROPIC_API_KEY"):
-        from quorum.providers.anthropic import AnthropicProvider
-        providers.append(AnthropicProvider())
+        from quorum.providers import anthropic as an
+        providers.append(an.claude_sonnet())
+        providers.append(an.claude_opus())
+        providers.append(an.claude_haiku())
 
     if os.getenv("OPENAI_API_KEY"):
-        from quorum.providers.openai import OpenAIProvider
-        providers.append(OpenAIProvider())
+        from quorum.providers import openai as oa
+        providers.append(oa.gpt_4_1())
+        providers.append(oa.gpt_4o_mini())
+        # gpt-5 family included but heavy — uncomment to enable
+        # providers.append(oa.gpt_5())
+        # providers.append(oa.gpt_5_mini())
 
     if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_STUDIO_KEY"):
         from quorum.providers.gemini import GeminiProvider
