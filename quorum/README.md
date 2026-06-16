@@ -18,6 +18,9 @@ result = await consensus("What is the chemical structure of L-Cysteine?")
 # result.evolution_signals → which loops fired this query
 ```
 
+> **Pro tier: £49/mo** — solo devs, BYOK, all 13 evolution loops, 5,000 queries/mo, £0.012 overage.
+> Start in 30 seconds at https://quorum-ai.dev.
+
 ## What makes Quorum different
 
 - **8+ models in parallel by default**: Claude, GPT, Gemini, Grok, Llama (local), Llama 3.3, Mistral, DeepSeek, Qwen, Phi
@@ -55,15 +58,33 @@ Each loop closes a feedback gap that single-model deployments leak silently. The
 
 ## Billing tiers (hosted)
 
-The OSS package is free forever. The hosted API at `api.quorum-ai.com` is metered. BYOK customers pay only platform fees; pass-through customers pay LLM costs at retail + margin.
+The OSS package is free forever. The hosted API at `api.quorum-ai.com` is metered. **BYOK only — Quorum never proxies your provider keys.** You pay the platform fee; your LLM spend stays on your own Anthropic / OpenAI / Gemini / Grok bills.
 
-| Tier | Price / mo | Included | Overage | Notes |
-|------|------------|----------|---------|-------|
-| **Free** | £0 | 100 queries, 3 models max, no evolution loops | — | Sandbox / dev |
-| **Pro** | £49 | 5,000 queries, 8 models, all 13 loops, BYOK | £0.012 / query | For solo devs |
-| **Team** | £199 | 25,000 queries, federated loop on, audit log retention 90d | £0.008 / query | Sharing across users |
-| **Enterprise** | £1,499 | Unlimited, EU AI Act cert PDFs, SLA 99.9%, dedicated HSP gate | Custom | SSO, on-prem, training data licence |
-| **Compliance add-on** | +£500 | Per-query EU AI Act PDF certificate, signed, hash-chained | — | Required for high-risk AI uses 2026-08+ |
+### Pro — £49/mo (start here)
+
+| Tier | Price / mo | Included | Overage |
+|------|------------|----------|---------|
+| **Pro** | **£49** | 5,000 queries, 8 models in parallel, all 13 evolution loops, BYOK | £0.012 / query |
+
+**Why Pro is the right tier for you.** If you're a solo backend dev, indie hacker, or an agency engineer shipping LLM features under your own name, Pro is built for your workflow. You get the full consensus engine — 8 models, semantic agreement, every self-evolution loop — at a price that fits a single-developer P&L, and you keep your own provider keys so there's nothing to migrate when you scale. No seat minimums, no procurement call, no "contact sales" wall between you and shipping.
+
+Sign up at https://quorum-ai.dev — 30 seconds, Stripe-backed, cancel any time.
+
+### Free sandbox
+
+| Tier | Price / mo | Included |
+|------|------------|----------|
+| **Free** | £0 | 100 queries, 3 models max, no evolution loops — for dev/test only |
+
+### Higher tiers (talk to us: jaqueline@hsp-protocol.com)
+
+For multi-user accounts, regulated workloads, or the EU AI Act PDF certification path, the following exist but are deliberately out of the self-serve flow. Email if you need them.
+
+| Tier | Price / mo | Included | Overage |
+|------|------------|----------|---------|
+| Team | £199 | 25,000 queries, federated loop on, audit log retention 90d | £0.008 / query |
+| Enterprise | £1,499 | Unlimited, SLA 99.9%, SSO, on-prem, training data licence | Custom |
+| Compliance add-on | +£500 | Per-query EU AI Act PDF certificate, signed, hash-chained | — |
 
 Stripe-backed. Webhook handler with in-memory fallback so tests run without keys. See `billing/stripe_billing.py`.
 
