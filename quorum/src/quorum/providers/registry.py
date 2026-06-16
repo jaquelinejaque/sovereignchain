@@ -47,6 +47,23 @@ def load_default_providers() -> list[Provider]:
         providers.append(nv.dracarys_70b_nvidia())
         providers.append(nv.llama_3_3_nvidia())
 
+    if os.getenv("MISTRAL_API_KEY"):
+        from quorum.providers import mistral as ms
+        providers.append(ms.mistral_large())
+        providers.append(ms.codestral())
+        providers.append(ms.mistral_small())
+
+    if os.getenv("COHERE_API_KEY"):
+        from quorum.providers import cohere as co
+        providers.append(co.command_r_plus())
+        providers.append(co.command_r())
+        providers.append(co.command_a())
+
+    if os.getenv("XAI_API_KEY"):
+        from quorum.providers import grok as gk
+        providers.append(gk.grok_4())
+        providers.append(gk.grok_4_mini())
+
     # Always try local Ollama (free, runs on user's Mac) — best effort
     try:
         from quorum.providers.ollama import OllamaProvider
