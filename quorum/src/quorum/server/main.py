@@ -97,6 +97,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
+from quorum import __version__ as QUORUM_VERSION
 from quorum.billing.stripe_billing import (
     TIERS,
     BillingClient,
@@ -382,7 +383,7 @@ class HealthResponse(BaseModel):
     """GET /v1/healthz response — intentionally small, cheap to serve."""
 
     status: Literal["ok"] = "ok"
-    version: str = "0.0.1"
+    version: str = QUORUM_VERSION
     time: datetime
 
 
@@ -539,7 +540,7 @@ def create_app(state: Optional[AppState] = None) -> FastAPI:
 
     app = FastAPI(
         title="Quorum",
-        version="0.0.1",
+        version=QUORUM_VERSION,
         summary="Multi-LLM consensus engine — hosted SaaS surface.",
         description=(
             "Quorum is a multi-LLM consensus engine. This is the hosted "
