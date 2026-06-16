@@ -45,6 +45,7 @@ import statistics
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Final, Literal
 
@@ -722,9 +723,411 @@ async def _run_all_smoke_tests() -> None:
     logger.info("all ab_testing smoke tests passed.")
 
 
+# --------------------------------------------------------------------------- #
+# Prompt-Template A/B Store (Wilson-bounded winner tracking)
+# --------------------------------------------------------------------------- #
+#
+# The ABTestRunner above (Loop 8) tests *evolution policies* — router weights,
+# judge prompts, consensus thresholds — with full Welch/chi-square testing and
+# HSP gating. That is the right tool when a change touches the live policy and
+# requires a human sign-off before promotion.
+#
+# This second store solves a DIFFERENT problem: prompt-template authors who
+# want to A/B two phrasings of the same user-facing prompt, compare the
+# resulting consensus outputs side by side, collect winner votes (from the
+# user or from an automatic judge), and pick the current winner per template
+# using a Wilson lower bound so a 3/3 win streak does not outrank a 38/50
+# win record. It is intentionally lightweight: no HSP gate, no statistical
+# test on continuous metrics, just persistent vote tracking with a
+# conservative winner heuristic.
+#
+# Storage lives in a separate file (ab_tests.db) so the policy experiment
+# history (abtest.db) is never co-mingled with prompt-variant votes.
+
+_AB_DEFAULT_DB_PATH: Final[Path] = DATA_DIR / "ab_tests.db"
+
+# Wilson lower bound default coverage: 95% (z = 1.96). Exposed as a kwarg so
+# tests can pin it deterministically and so a future caller can ask for a
+# stricter 99% bound for high-stakes templates.
+_WILSON_Z_95: Final[float] = 1.959964
+# Default rolling window for "active winner" decisions — last N experiments
+# per prompt-template. Bounded so a long-stale variant does not dominate.
+_WINNER_WINDOW_DEFAULT: Final[int] = 50
+# Minimum experiments before get_active_winner returns a non-None verdict.
+# Wilson on n<5 is meaningless and would just amplify noise.
+_WINNER_MIN_N: Final[int] = 5
+
+ABArm = Literal["a", "b", "tie"]
+ABSource = Literal["user", "auto"]
+
+
+_SCHEMA_AB_EXPERIMENTS: Final[str] = """
+CREATE TABLE IF NOT EXISTS experiments (
+    id                  TEXT PRIMARY KEY,
+    prompt_template_id  TEXT,
+    prompt_a            TEXT NOT NULL,
+    prompt_b            TEXT NOT NULL,
+    query_id            TEXT,
+    winner              TEXT,
+    winner_source       TEXT,
+    confidence_a        REAL NOT NULL DEFAULT 0.0,
+    confidence_b        REAL NOT NULL DEFAULT 0.0,
+    semantic_distance   REAL NOT NULL DEFAULT 0.0,
+    created_at          TIMESTAMP NOT NULL,
+    decided_at          TIMESTAMP
+);
+"""
+
+_SCHEMA_AB_INDEX_TEMPLATE: Final[str] = (
+    "CREATE INDEX IF NOT EXISTS idx_ab_experiments_template "
+    "ON experiments(prompt_template_id, created_at DESC);"
+)
+
+
+def _wilson_lower_bound(successes: int, n: int, z: float = _WILSON_Z_95) -> float:
+    """Wilson score lower confidence bound on a binomial proportion.
+
+    WHY this and not the raw win rate: a template that wins 3/3 has a raw rate
+    of 1.0 but a Wilson lower bound of ~0.44 — far below a template that wins
+    38/50 (raw 0.76, Wilson lower ~0.62). The Wilson bound is the gold-standard
+    way to rank "best out of N proportions" when N varies; it is what Reddit
+    used for "best comment" sort and what every modern bandit baseline uses.
+
+    Returns the lower bound on the true success probability. If n == 0 returns
+    0.0 (we have zero evidence, so cannot claim anything).
+    """
+    if n <= 0:
+        return 0.0
+    phat = successes / n
+    z2 = z * z
+    denom = 1.0 + z2 / n
+    centre = phat + z2 / (2.0 * n)
+    margin = z * math.sqrt((phat * (1.0 - phat) + z2 / (4.0 * n)) / n)
+    return max(0.0, (centre - margin) / denom)
+
+
+class ABTestStore:
+    """SQLite-backed store for prompt-template A/B experiments.
+
+    Use one instance per process; underlying SQLite I/O is wrapped in
+    ``asyncio.to_thread`` so the event loop never blocks. Concurrent
+    coroutines are safe because every call opens a short-lived connection
+    with ``check_same_thread=False``.
+
+    The store records (a) every experiment with both candidate prompts and
+    the two consensus results' confidence scores + their semantic distance,
+    and (b) the winner once it is reported (by a human or by an auto-judge).
+    ``get_active_winner`` then ranks the two arms by Wilson lower bound on
+    their win rate over the last N experiments, so a brand-new variant with
+    one lucky win cannot displace an established winner.
+    """
+
+    def __init__(self, db_path: Path | str | None = None) -> None:
+        """Open / create the SQLite file and ensure the schema is current.
+
+        Defaults to ``${QUORUM_DATA_DIR}/ab_tests.db`` mirroring the
+        convention used by ``core/memory.py`` and the rest of the codebase.
+        Pass ``":memory:"`` for hermetic tests.
+        """
+        if db_path is None:
+            db_path = _AB_DEFAULT_DB_PATH
+        self._db_path = Path(str(db_path)) if str(db_path) != ":memory:" else None
+        self._memory_uri = str(db_path) == ":memory:"
+        if self._db_path is not None:
+            self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._memory_conn: sqlite3.Connection | None = None
+        self._init_schema()
+
+    # ----- connection plumbing ----- #
+
+    def _connect(self) -> sqlite3.Connection:
+        if self._memory_uri:
+            if self._memory_conn is None:
+                self._memory_conn = sqlite3.connect(
+                    ":memory:", check_same_thread=False
+                )
+                self._memory_conn.execute("PRAGMA foreign_keys = ON;")
+            return self._memory_conn
+        assert self._db_path is not None
+        conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
+        conn.execute("PRAGMA foreign_keys = ON;")
+        conn.execute("PRAGMA journal_mode = WAL;")
+        return conn
+
+    def _init_schema(self) -> None:
+        conn = self._connect()
+        try:
+            with conn:
+                conn.execute(_SCHEMA_AB_EXPERIMENTS)
+                conn.execute(_SCHEMA_AB_INDEX_TEMPLATE)
+        finally:
+            if not self._memory_uri:
+                conn.close()
+
+    # ----- public API ----- #
+
+    async def record_experiment(
+        self,
+        prompt_a: str,
+        prompt_b: str,
+        result_a: Any,
+        result_b: Any,
+        *,
+        prompt_template_id: str | None = None,
+        query_id: str | None = None,
+        semantic_distance: float | None = None,
+    ) -> str:
+        """Persist a fresh A/B experiment row and return the experiment id.
+
+        ``result_a`` / ``result_b`` are duck-typed ``ConsensusResult`` (we
+        only need ``.embedding_confidence`` / ``.confidence`` / ``.answer``).
+        Importing the real class would create a cyclic import — store ↔
+        consensus — so we accept ``Any`` and read attributes defensively.
+
+        ``semantic_distance`` defaults to ``|conf_a - conf_b|`` when not
+        supplied. Callers who already have the answer-vs-answer cosine
+        distance from a shared embedder should pass it in for accuracy.
+        """
+        if not prompt_a or not prompt_b:
+            raise ValueError("prompt_a and prompt_b must be non-empty.")
+
+        conf_a = float(
+            getattr(result_a, "embedding_confidence", None)
+            or getattr(result_a, "confidence", 0.0)
+            or 0.0
+        )
+        conf_b = float(
+            getattr(result_b, "embedding_confidence", None)
+            or getattr(result_b, "confidence", 0.0)
+            or 0.0
+        )
+        if semantic_distance is None:
+            semantic_distance = abs(conf_a - conf_b)
+
+        exp_id = uuid.uuid4().hex
+        created_at = datetime.now(timezone.utc).isoformat()
+
+        def _insert() -> None:
+            conn = self._connect()
+            try:
+                with conn:
+                    conn.execute(
+                        """
+                        INSERT INTO experiments
+                          (id, prompt_template_id, prompt_a, prompt_b, query_id,
+                           winner, winner_source, confidence_a, confidence_b,
+                           semantic_distance, created_at, decided_at)
+                        VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, ?, NULL)
+                        """,
+                        (
+                            exp_id,
+                            prompt_template_id,
+                            prompt_a,
+                            prompt_b,
+                            query_id,
+                            conf_a,
+                            conf_b,
+                            float(semantic_distance),
+                            created_at,
+                        ),
+                    )
+            finally:
+                if not self._memory_uri:
+                    conn.close()
+
+        await asyncio.to_thread(_insert)
+        logger.info(
+            "ab_store_recorded id=%s template=%s conf_a=%.3f conf_b=%.3f dist=%.3f",
+            exp_id,
+            prompt_template_id,
+            conf_a,
+            conf_b,
+            semantic_distance,
+        )
+        return exp_id
+
+    async def report_winner(
+        self,
+        experiment_id: str,
+        winner: ABArm,
+        source: ABSource = "user",
+    ) -> None:
+        """Attach a winner verdict ('a' | 'b' | 'tie') to a recorded experiment.
+
+        ``source`` distinguishes ``user`` votes (gold signal) from ``auto``
+        verdicts (LLM-judge cheap signal). Both currently count equally toward
+        ``get_active_winner``; future versions can downweight ``auto`` via
+        an extra column without changing the API.
+        """
+        if winner not in ("a", "b", "tie"):
+            raise ValueError(f"winner must be 'a'|'b'|'tie', got {winner!r}.")
+        if source not in ("user", "auto"):
+            raise ValueError(f"source must be 'user'|'auto', got {source!r}.")
+        decided_at = datetime.now(timezone.utc).isoformat()
+
+        def _update() -> int:
+            conn = self._connect()
+            try:
+                with conn:
+                    cur = conn.execute(
+                        """
+                        UPDATE experiments
+                        SET winner = ?, winner_source = ?, decided_at = ?
+                        WHERE id = ?
+                        """,
+                        (winner, source, decided_at, experiment_id),
+                    )
+                    return cur.rowcount
+            finally:
+                if not self._memory_uri:
+                    conn.close()
+
+        rowcount = await asyncio.to_thread(_update)
+        if rowcount == 0:
+            raise KeyError(f"unknown experiment_id: {experiment_id!r}")
+        logger.info(
+            "ab_store_winner id=%s winner=%s source=%s",
+            experiment_id,
+            winner,
+            source,
+        )
+
+    async def get_active_winner(
+        self,
+        prompt_template_id: str,
+        *,
+        window: int = _WINNER_WINDOW_DEFAULT,
+        min_n: int = _WINNER_MIN_N,
+        z: float = _WILSON_Z_95,
+    ) -> ABArm | None:
+        """Return the current champion arm for a template, or ``None``.
+
+        Reads the last ``window`` *decided* experiments for the template and
+        ranks each arm by Wilson lower bound on its win rate. Ties (winner =
+        'tie') count toward neither arm's success but DO count toward both
+        arms' trial total — i.e. a tie is a "neither beat the other", which
+        is exactly the right semantic for a conservative champion bound.
+
+        Returns ``None`` when fewer than ``min_n`` decided experiments exist
+        (insufficient evidence), or when the two lower bounds are within 1e-9
+        (true tie, no champion).
+        """
+        if not prompt_template_id:
+            raise ValueError("prompt_template_id must be non-empty.")
+
+        def _query() -> list[str]:
+            conn = self._connect()
+            try:
+                cur = conn.execute(
+                    """
+                    SELECT winner FROM experiments
+                    WHERE prompt_template_id = ? AND winner IS NOT NULL
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (prompt_template_id, window),
+                )
+                return [str(row[0]) for row in cur.fetchall()]
+            finally:
+                if not self._memory_uri:
+                    conn.close()
+
+        winners = await asyncio.to_thread(_query)
+        n = len(winners)
+        if n < min_n:
+            return None
+
+        wins_a = sum(1 for w in winners if w == "a")
+        wins_b = sum(1 for w in winners if w == "b")
+        lb_a = _wilson_lower_bound(wins_a, n, z=z)
+        lb_b = _wilson_lower_bound(wins_b, n, z=z)
+
+        if abs(lb_a - lb_b) < 1e-9:
+            return None
+        return "a" if lb_a > lb_b else "b"
+
+    async def stats(self) -> dict[str, Any]:
+        """Return aggregate stats for an operator dashboard.
+
+        Shape::
+
+            {
+              "total_experiments": int,
+              "decided_experiments": int,
+              "win_rates_per_arm": {
+                  "a": {"wins": int, "n": int, "rate": float, "wilson_lb": float},
+                  "b": {"wins": int, "n": int, "rate": float, "wilson_lb": float},
+                  "tie": {"wins": int, "n": int, "rate": float},
+              },
+              "current_winner_per_template": {"<template_id>": "a"|"b"|None, ...},
+            }
+        """
+
+        def _aggregate() -> tuple[int, list[tuple[str | None, str]]]:
+            conn = self._connect()
+            try:
+                total = conn.execute(
+                    "SELECT COUNT(*) FROM experiments"
+                ).fetchone()[0]
+                cur = conn.execute(
+                    """
+                    SELECT prompt_template_id, winner FROM experiments
+                    WHERE winner IS NOT NULL
+                    """
+                )
+                rows = [
+                    (None if r[0] is None else str(r[0]), str(r[1]))
+                    for r in cur.fetchall()
+                ]
+                return int(total), rows
+            finally:
+                if not self._memory_uri:
+                    conn.close()
+
+        total, decided_rows = await asyncio.to_thread(_aggregate)
+        decided = len(decided_rows)
+
+        wins_a = sum(1 for _, w in decided_rows if w == "a")
+        wins_b = sum(1 for _, w in decided_rows if w == "b")
+        wins_t = sum(1 for _, w in decided_rows if w == "tie")
+
+        def _arm(wins: int, n: int) -> dict[str, float | int]:
+            return {
+                "wins": wins,
+                "n": n,
+                "rate": (wins / n) if n else 0.0,
+                "wilson_lb": _wilson_lower_bound(wins, n),
+            }
+
+        # Per-template champion lookup. We re-use get_active_winner so the
+        # ranking logic stays in one place; the await loop is fine for the
+        # template counts a dashboard would ever hit (dozens, not millions).
+        template_ids = {tid for tid, _ in decided_rows if tid is not None}
+        per_template: dict[str, ABArm | None] = {}
+        for tid in template_ids:
+            per_template[tid] = await self.get_active_winner(tid)
+
+        return {
+            "total_experiments": total,
+            "decided_experiments": decided,
+            "win_rates_per_arm": {
+                "a": _arm(wins_a, decided),
+                "b": _arm(wins_b, decided),
+                "tie": {
+                    "wins": wins_t,
+                    "n": decided,
+                    "rate": (wins_t / decided) if decided else 0.0,
+                },
+            },
+            "current_winner_per_template": per_template,
+        }
+
+
 __all__ = [
     "ABDecision",
     "ABTestRunner",
+    "ABTestStore",
+    "_wilson_lower_bound",
 ]
 
 

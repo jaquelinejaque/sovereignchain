@@ -434,4 +434,80 @@ async def consensus(
     )
 
 
-__all__ = ["ConsensusResult", "consensus"]
+async def consensus_ab(
+    prompt_a: str,
+    prompt_b: str,
+    *,
+    providers: Sequence[Provider] | None = None,
+    max_concurrency: int = 8,
+    timeout_s: float = 30.0,
+    user_id: str | None = None,
+    budget_usd: float = 0.05,
+    route: bool = True,
+    prompt_template_id: str | None = None,
+    query_id: str | None = None,
+    store: Any | None = None,
+) -> tuple[ConsensusResult, ConsensusResult, str]:
+    """Fan out two prompt variants through ``consensus()`` and record the A/B.
+
+    Runs both prompts concurrently (the whole point of an A/B is *parallel*
+    evaluation, not sequential — otherwise the second run pollutes its own
+    rlhf/memory state with the first), then persists the experiment via
+    ``ABTestStore`` so a later /v1/ab/feedback call can attach a winner.
+
+    Returns ``(result_a, result_b, experiment_id)``. The store import is
+    LAZY (mirroring the other evolution-loop imports in this module) so a
+    fresh clone with no ``QUORUM_DATA_DIR`` still imports cleanly.
+
+    Args:
+        prompt_a: First candidate prompt.
+        prompt_b: Second candidate prompt.
+        prompt_template_id: Optional group key — ``get_active_winner`` ranks
+            arms within a template, so two unrelated A/B's never bleed
+            into each other's win rate.
+        query_id: Optional upstream query id (e.g. from the server's
+            /v1/consensus assignment) for cross-referencing in audit logs.
+        store: Pre-built ``ABTestStore`` for tests; constructed lazily when
+            absent so production callers don't have to thread it through.
+    """
+    if not prompt_a or not prompt_b:
+        raise ValueError("prompt_a and prompt_b must be non-empty.")
+
+    call_kwargs: dict[str, Any] = {
+        "providers": providers,
+        "max_concurrency": max_concurrency,
+        "timeout_s": timeout_s,
+        "user_id": user_id,
+        "budget_usd": budget_usd,
+        "route": route,
+    }
+    result_a, result_b = await asyncio.gather(
+        consensus(prompt_a, **call_kwargs),
+        consensus(prompt_b, **call_kwargs),
+    )
+
+    if store is None:
+        try:
+            from quorum.evolution.ab_testing import ABTestStore
+            store = ABTestStore()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("ABTestStore unavailable (%s); A/B not recorded", e)
+            return result_a, result_b, ""
+
+    try:
+        experiment_id = await store.record_experiment(
+            prompt_a=prompt_a,
+            prompt_b=prompt_b,
+            result_a=result_a,
+            result_b=result_b,
+            prompt_template_id=prompt_template_id,
+            query_id=query_id,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ab_store record_experiment failed (%s)", e)
+        experiment_id = ""
+
+    return result_a, result_b, experiment_id
+
+
+__all__ = ["ConsensusResult", "consensus", "consensus_ab"]

@@ -107,6 +107,7 @@ from quorum.billing.stripe_billing import (
     WebhookResult,
 )
 from quorum.core.consensus import ConsensusResult, consensus
+from quorum.evolution.ab_testing import ABTestStore
 from quorum.evolution.rlhf import RLHFTracker
 from quorum.hsp.ai_act_cert import generate_cert_pdf
 
@@ -131,6 +132,8 @@ __all__ = [
     "APIKeyStore",
     "ConsensusRequest",
     "FeedbackRequest",
+    "ABFeedbackRequest",
+    "ABFeedbackResponse",
     "AppState",
 ]
 
@@ -379,6 +382,31 @@ class FeedbackResponse(BaseModel):
     accepted: bool
 
 
+class ABFeedbackRequest(BaseModel):
+    """POST /v1/ab/feedback body.
+
+    Carries a verdict for a prompt-template A/B experiment previously
+    recorded by ``consensus_ab``. ``winner`` is the arm the caller (human
+    or automated judge) picked — or ``'tie'`` if both answers were
+    indistinguishable. ``source`` lets the store distinguish gold human
+    signal from cheap LLM-judge votes.
+    """
+
+    experiment_id: str = Field(min_length=1, max_length=64)
+    winner: Literal["a", "b", "tie"]
+    source: Literal["user", "auto"] = "user"
+
+
+class ABFeedbackResponse(BaseModel):
+    """POST /v1/ab/feedback response — echoes the verdict plus updated stats."""
+
+    experiment_id: str
+    winner: Literal["a", "b", "tie"]
+    source: Literal["user", "auto"]
+    accepted: bool
+    stats: dict[str, Any]
+
+
 class HealthResponse(BaseModel):
     """GET /v1/healthz response — intentionally small, cheap to serve."""
 
@@ -406,11 +434,16 @@ class AppState:
         api_key_store: Optional[APIKeyStore] = None,
         billing: Optional[BillingClient] = None,
         rlhf: Optional[RLHFTracker] = None,
+        ab_store: Optional[ABTestStore] = None,
         cert_dir: Optional[Path] = None,
     ) -> None:
         self.api_key_store = api_key_store or APIKeyStore()
         self.billing = billing or BillingClient()
         self.rlhf = rlhf or RLHFTracker()
+        # ABTestStore tracks prompt-template A/B verdicts. Initialized eagerly
+        # (same as rlhf) so the first /v1/ab/feedback request doesn't pay the
+        # schema-creation cost; SQLite open is sub-millisecond on macOS APFS.
+        self.ab_store = ab_store or ABTestStore()
         self.cert_dir = cert_dir or _DEFAULT_CERT_DIR
         self.cert_dir.mkdir(parents=True, exist_ok=True)
         # In-memory query record so /v1/cert can find prior consensus
@@ -946,6 +979,77 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
             rating=event.rating,
             query_class=event.query_class,
             accepted=True,
+        )
+
+    # ---------- A/B prompt-template feedback --------------------------------
+
+    @app.post(
+        "/v1/ab/feedback",
+        response_model=ABFeedbackResponse,
+        tags=["evolution"],
+    )
+    async def post_ab_feedback(
+        body: ABFeedbackRequest,
+        request: Request,
+        api_record: APIKeyRecord = Depends(_require_api_key),
+    ) -> ABFeedbackResponse:
+        """Attach a winner verdict to a prompt-template A/B experiment.
+
+        WHY a separate endpoint from /v1/feedback: RLHF feedback is per
+        (query, model) — it credits a specific model for a specific
+        answer. A/B feedback is per (experiment, arm) — it picks between
+        two whole *prompts* and is consumed by ``get_active_winner`` to
+        rank prompt templates over time. Different shape, different
+        downstream consumer, deliberately different routes.
+
+        Returns 404 if the experiment_id is unknown — that almost always
+        means the caller is replaying an old feedback after the store
+        was wiped, and we want them to notice rather than silently
+        accepting a vote that goes nowhere.
+        """
+        state = _get_state(request)
+        try:
+            await state.ab_store.report_winner(
+                body.experiment_id,
+                winner=body.winner,
+                source=body.source,
+            )
+        except KeyError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=str(exc),
+            ) from exc
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=str(exc),
+            ) from exc
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("ab_store report_winner failed")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="A/B feedback could not be recorded",
+            ) from exc
+
+        try:
+            updated_stats = await state.ab_store.stats()
+        except Exception:  # noqa: BLE001 - stats are best-effort, never fatal
+            logger.exception("ab_store stats failed after vote")
+            updated_stats = {}
+
+        logger.debug(
+            "ab_feedback recorded api_user=%s exp=%s winner=%s source=%s",
+            api_record.user_id,
+            body.experiment_id,
+            body.winner,
+            body.source,
+        )
+        return ABFeedbackResponse(
+            experiment_id=body.experiment_id,
+            winner=body.winner,
+            source=body.source,
+            accepted=True,
+            stats=updated_stats,
         )
 
     # ---------- usage --------------------------------------------------------
