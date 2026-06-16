@@ -66,9 +66,9 @@ Apache 2.0 + HSP patent PCT/US26/11908.
 
 **6/8**
 
-Honest scorecard: 8 of 13 self-evolution loops are functional today (memory, MoE router, RLHF, A/B testing, synthetic data, Hebbian co-activation, meta-learner, model-vs-model ELO).
+Honest scorecard: 10 of 13 self-evolution loops are functional today (memory, MoE router, RLHF, A/B testing, synthetic data, Hebbian, meta-learner, ELO competition, self-prompting, adversarial probing).
 
-5 still scaffold (down from 9 at launch — Quorum is building itself).
+3 still scaffold (down from 9 at launch — Quorum is building itself).
 
 Published in repo. Updated every release. I'd rather lose your trust now than after 100 users.
 

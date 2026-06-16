@@ -14,9 +14,9 @@ What's live today at https://quorum-ai.dev (Apache 2.0):
 ↳ HSP Gate (patent-pending PCT/US26/11908) for high-stakes async approval — optional, off by default
 ↳ VS Code extension live on Marketplace (`sovereignchain.quorum-vscode`)
 
-Honest scope: 8 of 13 evolution loops are functional today (memory, MoE router, RLHF, A/B, synthetic data, Hebbian co-activation, meta-learner, model-vs-model ELO). 5 are scaffold. The README and release notes say so. I update the scorecard every release.
+Honest scope: 10 of 13 evolution loops are functional today (memory, MoE router, RLHF, A/B, synthetic data, Hebbian co-activation, meta-learner, model-vs-model ELO, self-prompting, adversarial probing). 3 remain scaffold (distillation, architecture search, federated). The README and release notes say so. I update the scorecard every release.
 
-Bonus dogfood: the 3 loops promoted from skeleton/partial in v0.1.4 had their design decisions made by Quorum itself — the consensus across 23 LLMs picked the Hebbian decay rate, the meta-learner update policy, and the ELO K-factor. Self-evolution isn't a roadmap claim. It's a commit history.
+Bonus dogfood: the 5 loops promoted from skeleton/partial in v0.1.4 and v0.1.5 had their design decisions made by Quorum itself — the consensus across 23 LLMs picked the Hebbian decay rate, the meta-learner update policy, the ELO K-factor, the self-prompt rewrite strategy, and the adversarial probe penalty curve. Self-evolution isn't a roadmap claim. It's a commit history.
 
 The wedge is structural: Anthropic, OpenAI, and Google cannot ship multi-vendor consensus without commoditizing their own answer to one vote. A solo team can. That's the bet.
 
