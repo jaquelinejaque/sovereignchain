@@ -1,6 +1,6 @@
 [project]
 name = "quorum-ai"
-version = "0.1.3"
+version = "0.1.4"
 description = "Multi-LLM consensus engine with semantic agreement and self-evolution"
 authors = [{ name = "Jaqueline Martins", email = "jaqueline@hsp-protocol.com" }]
 license = { text = "Apache-2.0 WITH HSP-Commercial-Restrictions" }
