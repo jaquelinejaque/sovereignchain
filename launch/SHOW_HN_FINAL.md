@@ -8,8 +8,9 @@ I got tired of asking the same question to Claude, GPT, and Gemini one at a time
 
 Live, hosted, BYOK:
 
-    https://quorum-ai.dev/docs        Swagger UI
-    https://quorum-ai.dev/v1/healthz  -> {"status":"ok","version":"0.1.0"}
+    https://quorum-ai.dev             Landing Page
+    https://api.quorum-ai.dev/docs    Swagger UI
+    https://api.quorum-ai.dev/v1/healthz  -> {"status":"ok","version":"0.1.3"}
 
 Default pool today: Gemini, Claude, GPT, local Llama via Ollama, plus Llama 3.3 70B / 3.2 3B / 3.1 8B / Llama-4 Maverick / DeepSeek V4 Flash / Dracarys 70B — last six all free via NVIDIA AI Foundation. Mistral, Qwen, Phi-4 via Replicate if you set the key.
 

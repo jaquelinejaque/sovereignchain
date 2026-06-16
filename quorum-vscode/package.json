@@ -84,7 +84,7 @@
       "properties": {
         "quorum.endpoint": {
           "type": "string",
-          "default": "https://quorum-ai.dev",
+          "default": "https://api.quorum-ai.dev",
           "description": "Quorum server endpoint"
         },
         "quorum.apiKey": {

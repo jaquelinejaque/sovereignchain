@@ -78,7 +78,7 @@ export class QuorumClient {
    */
   async ask(prompt: string, opts: AskOpts = {}): Promise<ConsensusResult> {
     const cfg = vscode.workspace.getConfiguration(CONFIG_NS);
-    const endpoint = cfg.get<string>('endpoint', 'https://quorum-ai.dev');
+    const endpoint = cfg.get<string>('endpoint', 'https://api.quorum-ai.dev');
     const apiKey = await this.resolveApiKey(cfg);
     const providers = opts.providers ?? cfg.get<string[]>('providers', []);
     const maxLatencyMs =
