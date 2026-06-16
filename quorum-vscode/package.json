@@ -1,0 +1,134 @@
+{
+  "name": "quorum-vscode",
+  "displayName": "Quorum — Multi-LLM Consensus",
+  "description": "Run consensus queries across 8+ LLMs (Claude, GPT, Gemini, Llama, DeepSeek, Mistral, Qwen, Phi) directly from VS Code. Semantic agreement scoring. BYOK.",
+  "version": "0.1.0",
+  "publisher": "sovereignchain",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/jaquelinejaque/sovereignchain",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jaquelinejaque/sovereignchain.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jaquelinejaque/sovereignchain/issues"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "AI",
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "llm",
+    "ai",
+    "consensus",
+    "multi-model",
+    "claude",
+    "gpt",
+    "gemini",
+    "ollama"
+  ],
+  "main": "./dist/extension.js",
+  "icon": "media/icon.png",
+  "galleryBanner": {
+    "color": "#0a0a0a",
+    "theme": "dark"
+  },
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "quorum.ask",
+        "title": "Quorum: Ask"
+      },
+      {
+        "command": "quorum.askAboutSelection",
+        "title": "Quorum: Ask about selection"
+      },
+      {
+        "command": "quorum.explainSelection",
+        "title": "Quorum: Explain selected code"
+      },
+      {
+        "command": "quorum.reviewSelection",
+        "title": "Quorum: Review selected code (bugs/security)"
+      },
+      {
+        "command": "quorum.compareImplementations",
+        "title": "Quorum: Compare two implementations"
+      },
+      {
+        "command": "quorum.openSettings",
+        "title": "Quorum: Open settings"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "quorum.explainSelection",
+          "when": "editorHasSelection",
+          "group": "quorum@1"
+        },
+        {
+          "command": "quorum.reviewSelection",
+          "when": "editorHasSelection",
+          "group": "quorum@2"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Quorum",
+      "properties": {
+        "quorum.endpoint": {
+          "type": "string",
+          "default": "https://quorum-ai.dev",
+          "description": "Quorum server endpoint"
+        },
+        "quorum.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "X-Quorum-API-Key (leave empty to use BYOK mode)"
+        },
+        "quorum.providers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "gemini-flash",
+            "llama-3.3-70b",
+            "deepseek-v3",
+            "claude-sonnet-4-6"
+          ],
+          "description": "Which providers to include in consensus"
+        },
+        "quorum.maxLatencyMs": {
+          "type": "number",
+          "default": 30000,
+          "description": "Max ms before timeout"
+        },
+        "quorum.showCostInline": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show per-query cost inline in result panel"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "node esbuild.js --production",
+    "watch": "node esbuild.js --watch",
+    "package": "vsce package --out quorum-vscode-0.1.0.vsix"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.4.0",
+    "esbuild": "^0.20.0",
+    "@vscode/vsce": "^2.30.0"
+  }
+}
