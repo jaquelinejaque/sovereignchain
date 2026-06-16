@@ -1,63 +1,99 @@
-1/8
-GPT, Claude, and Gemini disagree on ~30% of non-trivial questions.
+# Twitter/X thread — Quorum launch (8 tweets)
 
-Nobody ships the layer that tells you which one to trust.
+Post as a reply chain. Attach `~/Desktop/quorum-23-models-live.png` to tweet 1.
 
-So I did.
+---
 
-Quorum v0.1.0 is live.
+**1/8** [attach screenshot]
 
-2/8
-Query N frontier LLMs in parallel. Get a confidence-scored answer with disagreement surfaced.
+I shipped an open-source multi-LLM consensus engine yesterday.
 
-When models split, the question was hard.
-When they converge, you have signal — not a vibe.
+Then I asked it about its own source code.
 
-Single-model answers are bets. Consensus answers are measurements.
+In 30 seconds it found 2 bugs my unit tests had missed.
 
-3/8
-Why hasn't OpenAI shipped this?
+23 models in parallel. $0.011 a query. Live at https://quorum-ai.dev
 
-They won't route to Claude. Anthropic won't route to Gemini. Google won't route to GPT.
+🧵👇
 
-A neutral consensus layer has to be independent. Switzerland of LLMs.
+---
 
-Incumbents structurally can't sell it. That's the whole moat.
+**2/8**
 
-4/8
-13 self-evolution loops run in the background:
+The two bugs it caught:
 
-- track per-model accuracy by domain
-- detect drift
-- route around degraded providers
-- learn who to trust on what
+- Google had silently deprecated the Gemini embedding endpoint (about to 404 in prod)
+- My __version__ string was stale
 
-Routing gets better while you sleep. You don't tune prompts. The system tunes itself.
+Fixed both in 30s because the divergence report named them.
 
-5/8
-If your prod stack still trusts one LLM for high-stakes calls in 2026, you're flying blind and calling it "AI strategy."
+Most teams ship with one LLM and pretend it's right.
 
-Reply with your eval suite. I'll wait.
+---
 
-6/8
-Free tier: 100 queries/mo, no card.
+**3/8**
 
-Pro: £49/mo, unlimited, priority routing, full audit log of every model vote.
+What's in the consensus pool today, ALL responding live:
 
-Self-host: fork it tonight, point it at your own keys, no telemetry phones home.
+• Anthropic — Claude Sonnet 4.6, Opus 4.8, Haiku 4.5
+• OpenAI — GPT-4.1, GPT-4o-mini
+• xAI — Grok-4
+• Google — Gemini Flash
+• 6 NVIDIA-hosted OSS (Llama 3.3, Llama-4 Maverick, DeepSeek V4, Dracarys...)
 
-7/8
-Apache 2.0 on the engine.
+---
 
-HSP consensus protocol filed under PCT/US26/11908 — patent protects the protocol from capture, not the user.
+**4/8**
 
-Built solo in the UK. No VC. No moat games. No waitlist theater.
+• Mistral — Large, Codestral, Small
+• Cohere — Command R+, R, A
+• DeepSeek-direct — Chat, Reasoner
+• Local Llama via Ollama
 
-Code that ships.
+23 of 25 models OK. Cost per consensus call ~$0.011. 87% semantic agreement on "should I use SQLite or Postgres for 100 paying users" → Postgres won.
 
-8/8
-🚀 Quorum v0.1.0 is live.
+---
 
-Star it. Fork it. Break it. Tell me what's broken.
+**5/8**
 
-https://github.com/jaquelinejaque/sovereignchain
+How: cosine similarity on embeddings (NOT Jaccard — paraphrases count). Top-weighted answer + audit trail of every model's response + disagreements explicitly listed.
+
+GitHub: https://github.com/jaquelinejaque/sovereignchain
+
+Apache 2.0 + HSP patent PCT/US26/11908.
+
+---
+
+**6/8**
+
+Honest scorecard: 8 of 13 self-evolution loops are functional today (memory, MoE router, RLHF, A/B testing, synthetic data, Hebbian co-activation, meta-learner, model-vs-model ELO).
+
+5 still scaffold (down from 9 at launch — Quorum is building itself).
+
+Published in repo. Updated every release. I'd rather lose your trust now than after 100 users.
+
+---
+
+**7/8**
+
+The wedge is structural:
+
+Anthropic, OpenAI, Google CANNOT ship multi-vendor consensus without commoditizing their own answer to one vote among several.
+
+A solo team can. That's the bet.
+
+VS Code extension live: https://marketplace.visualstudio.com/items?itemName=sovereignchain.quorum-vscode
+
+---
+
+**8/8**
+
+Pro tier: £49/mo. 5,000 queries, BYOK any backend.
+
+Free OSS forever, self-host unlimited.
+
+If you ship AI features and want a second (or eighth) opinion before something hits prod, DM me — looking for design partners.
+
+Roast me. I'd rather hear it now.
+
+#AI #OpenSource #LLM
