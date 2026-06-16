@@ -938,9 +938,84 @@ if __name__ == "__main__":
     asyncio.run(_run_smoke_tests())
 
 
+# ---------------------------------------------------------------------------
+# Module-level convenience wrapper for the router (Loop 4).
+# ---------------------------------------------------------------------------
+#
+# The MoE router (quorum.evolution.router) imports `get_user_weights` from
+# this module. It needs a per-model multiplier for a specific candidate list,
+# *without* a query_class (the router classifies separately via its own
+# heuristic regex). We expose a tiny singleton-backed wrapper that aggregates
+# this user's weights across every query class so the router can multiply
+# them into its score.
+
+_default_tracker: RLHFTracker | None = None
+_default_tracker_lock = asyncio.Lock()
+
+
+async def _get_default_tracker() -> RLHFTracker:
+    """Return a process-wide singleton tracker.
+
+    Why a singleton: the router calls this on every consensus(), and
+    re-instantiating an RLHFTracker per call would re-do the embedder load
+    and the schema-init dance. The singleton is created lazily so importing
+    this module remains side-effect-free.
+    """
+    global _default_tracker
+    if _default_tracker is not None:
+        return _default_tracker
+    async with _default_tracker_lock:
+        if _default_tracker is None:
+            _default_tracker = RLHFTracker()
+    return _default_tracker
+
+
+async def get_user_weights(
+    user_id: str, models: Sequence[str]
+) -> dict[str, float]:
+    """Return a {model_name: weight} mapping for the router.
+
+    Aggregates the user's per-class weights across every QUERY_CLASS into a
+    single per-model preference, then fills missing models with the neutral
+    weight (1.0) so the router can multiply unconditionally.
+
+    Never raises — returns neutral weights on any internal failure so the
+    router's hot path can't be broken by an RLHF outage.
+    """
+    try:
+        tracker = await _get_default_tracker()
+        accum: dict[str, float] = {m: 0.0 for m in models}
+        counts: dict[str, int] = {m: 0 for m in models}
+        for cls in QUERY_CLASSES:
+            class_weights = await tracker.get_weights(user_id, cls)
+            if not class_weights:
+                continue
+            for m in models:
+                if m in class_weights:
+                    accum[m] += class_weights[m]
+                    counts[m] += 1
+        out: dict[str, float] = {}
+        for m in models:
+            if counts[m] > 0:
+                # Renormalise to neutral 1.0 baseline so a model with no
+                # history is treated identically to one with average history.
+                avg = accum[m] / counts[m]
+                # `class_weights` from RLHFTracker is normalised so its
+                # entries sum to 1.0 — scale up by the panel size to recover
+                # an interpretable "1.0 == neutral" multiplier.
+                out[m] = avg * len(models)
+            else:
+                out[m] = 1.0
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.warning("get_user_weights failed (%s); returning neutral", e)
+        return {m: 1.0 for m in models}
+
+
 __all__ = [
     "QUERY_CLASSES",
     "RLHFTracker",
     "WeightRow",
     "FeedbackEvent",
+    "get_user_weights",
 ]

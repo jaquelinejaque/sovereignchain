@@ -522,6 +522,88 @@ async def _smoke_decay() -> None:
     tmp.unlink(missing_ok=True)
 
 
+# ---------------------------------------------------------------------------
+# Module-level convenience wrapper for the router (Loop 4).
+# ---------------------------------------------------------------------------
+#
+# The MoE router (quorum.evolution.router) imports `get_class_boosts` from
+# this module. It wants a per-model multiplier given a query_class and a
+# candidate list. We translate the pairwise stored matrix into a per-model
+# score by averaging each candidate's pairwise boost against every other
+# candidate in the panel: a model that historically aligns well with the
+# rest of the panel gets a higher multiplier than one that doesn't.
+#
+# query_class is currently unused at this layer — the underlying matrix is
+# global, not partitioned by class — but we accept it in the signature so
+# the router doesn't have to change later when we add per-class shards.
+
+_default_matrix: HebbianMatrix | None = None
+_default_matrix_lock = asyncio.Lock()
+
+
+async def _get_default_matrix() -> HebbianMatrix:
+    """Return a process-wide singleton matrix.
+
+    Why a singleton: the router calls this on every consensus(), and the
+    matrix constructor opens a sqlite connection to ensure schema. Once is
+    enough.
+    """
+    global _default_matrix
+    if _default_matrix is not None:
+        return _default_matrix
+    async with _default_matrix_lock:
+        if _default_matrix is None:
+            _default_matrix = HebbianMatrix()
+    return _default_matrix
+
+
+async def get_class_boosts(
+    query_class: str, models: "list[str]"
+) -> dict[str, float]:
+    """Return a {model_name: boost} mapping for the router.
+
+    For each model in ``models`` we compute the mean pairwise boost against
+    every other model in the same panel. Models that consistently co-fire
+    productively with the panel get a multiplier above 1.0; lone wolves stay
+    at 1.0. Never raises — falls back to neutral 1.0 on any internal error
+    so the router's hot path can't be broken by a Hebbian outage.
+
+    ``query_class`` is currently advisory (the matrix is global) but kept in
+    the signature for forward compatibility with a future per-class shard.
+    """
+    try:
+        if not models or len(models) < 2:
+            return {m: MIN_BOOST for m in models}
+        matrix = await _get_default_matrix()
+        out: dict[str, float] = {}
+        for m in models:
+            others = [o for o in models if o != m]
+            if not others:
+                out[m] = MIN_BOOST
+                continue
+            pair_boosts = await asyncio.gather(
+                *(matrix.get_pair_boost(m, o) for o in others)
+            )
+            # Average boost across the panel: a model that aligns with most
+            # of the panel gets a higher score; a lone dissenter stays at 1.0.
+            out[m] = sum(pair_boosts) / len(pair_boosts)
+        return out
+    except Exception as e:  # noqa: BLE001
+        logger.warning("get_class_boosts failed (%s); returning neutral", e)
+        return {m: MIN_BOOST for m in models}
+
+
+__all__ = [
+    "HebbianMatrix",
+    "PairStat",
+    "SIMILARITY_THRESHOLD",
+    "LEARNING_RATE",
+    "MAX_BOOST",
+    "MIN_BOOST",
+    "get_class_boosts",
+]
+
+
 if __name__ == "__main__":  # pragma: no cover
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s :: %(message)s")
     asyncio.run(_smoke_record_round())
