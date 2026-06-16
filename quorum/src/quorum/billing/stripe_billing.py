@@ -24,7 +24,9 @@ Quorum is dual-licensed: solo BYOK self-host is free under Apache 2.0, hosted
 SaaS access (with quotas, SSO, dashboards, audit log) is paid. This module is
 the *single source of truth* for that paid surface:
 
-* It defines the tier matrix (FREE / PRO / TEAM / ENTERPRISE).
+* It defines the tier matrix (PRO / FREE / TEAM / ENTERPRISE / COMPLIANCE).
+  PRO £49/mo is the default self-serve, headline product; TEAM / ENTERPRISE
+  / COMPLIANCE are contact-sales (no self-serve Stripe Checkout).
 * It talks to Stripe for customer + subscription lifecycle.
 * It enforces per-customer monthly quotas via a *local* SQLite cache so the
   hot path (one ``check_quota`` call per Quorum query) never touches the
@@ -73,6 +75,9 @@ __all__ = [
     "Tier",
     "TIERS",
     "TierConfig",
+    "DEFAULT_TIER",
+    "get_default_tier",
+    "list_tiers",
     "QuotaStatus",
     "WebhookResult",
     "BillingClient",
@@ -92,7 +97,7 @@ logger = logging.getLogger("quorum.billing.stripe")
 # If pricing ever changes, that change must show up in a git diff.
 
 
-Tier = Literal["free", "pro", "team", "enterprise"]
+Tier = Literal["pro", "free", "team", "enterprise", "compliance"]
 
 
 @dataclass(frozen=True)
@@ -101,67 +106,151 @@ class TierConfig:
 
     Frozen dataclass (not pydantic) so it can be hashed and used as a dict
     key, and so accidental mutation at runtime raises immediately.
+
+    WHY ``amount_pence`` exists alongside ``price_gbp_monthly``: Stripe's
+    API speaks minor units (pence), so the canonical machine-readable
+    price lives in ``amount_pence``. ``price_gbp_monthly`` is a derived,
+    human-friendly integer kept for backward compatibility with anything
+    that already read the field. They must stay in sync.
+
+    WHY ``contact_sales``: tiers that require a human conversation
+    (TEAM / ENTERPRISE / COMPLIANCE) should NOT be reachable via the
+    self-serve Stripe Checkout flow. Marking them here keeps the API
+    surface honest — front-ends can simply hide the "Subscribe" button
+    and show "Contact Sales" instead.
     """
 
     name: Tier
     price_gbp_monthly: Optional[int]  # None == "contact sales"
+    amount_pence: Optional[int]  # canonical Stripe minor-unit amount; None == contact sales
+    currency: str  # ISO 4217 lower-case ("gbp")
+    interval: Literal["month", "year", "none"]  # billing cadence; "none" for free / contact-sales
     monthly_query_limit: int  # 0 == unlimited (enterprise, usage-billed)
     byok: bool
     sso: bool
     audit_log: bool
     dashboard: bool
     semantic_scoring: bool
+    contact_sales: bool  # True == not self-serve; route to humans
     stripe_price_env: Optional[str]
     # Env var holding the Stripe Price ID. Kept as an env-var *name* rather
     # than the price ID itself so the matrix can be committed publicly.
 
 
+# ``TIERS`` is intentionally ordered Pro-first. Python 3.7+ guarantees
+# insertion-order iteration over ``dict``, so anything that does
+# ``next(iter(TIERS))`` or ``list(TIERS)[0]`` gets PRO — our headline
+# self-serve product.
 TIERS: dict[Tier, TierConfig] = {
-    "free": TierConfig(
-        name="free",
-        price_gbp_monthly=0,
-        monthly_query_limit=100,
-        byok=True,
-        sso=False,
-        audit_log=False,
-        dashboard=False,
-        semantic_scoring=False,
-        stripe_price_env=None,
-    ),
     "pro": TierConfig(
         name="pro",
-        price_gbp_monthly=29,
+        price_gbp_monthly=49,
+        amount_pence=4900,
+        currency="gbp",
+        interval="month",
         monthly_query_limit=5_000,
         byok=True,
         sso=False,
         audit_log=False,
         dashboard=True,
         semantic_scoring=True,
+        contact_sales=False,
         stripe_price_env="STRIPE_PRICE_PRO",
+    ),
+    "free": TierConfig(
+        name="free",
+        price_gbp_monthly=0,
+        amount_pence=0,
+        currency="gbp",
+        interval="none",
+        monthly_query_limit=100,
+        byok=True,
+        sso=False,
+        audit_log=False,
+        dashboard=False,
+        semantic_scoring=False,
+        contact_sales=False,
+        stripe_price_env=None,
     ),
     "team": TierConfig(
         name="team",
         price_gbp_monthly=199,
+        amount_pence=19_900,
+        currency="gbp",
+        interval="month",
         monthly_query_limit=50_000,
         byok=True,
         sso=True,
         audit_log=True,
         dashboard=True,
         semantic_scoring=True,
+        contact_sales=True,
         stripe_price_env="STRIPE_PRICE_TEAM",
     ),
     "enterprise": TierConfig(
         name="enterprise",
         price_gbp_monthly=None,
+        amount_pence=None,
+        currency="gbp",
+        interval="none",
         monthly_query_limit=0,  # usage-billed, no hard cap
         byok=True,
         sso=True,
         audit_log=True,
         dashboard=True,
         semantic_scoring=True,
+        contact_sales=True,
         stripe_price_env="STRIPE_PRICE_ENTERPRISE_USAGE",
     ),
+    "compliance": TierConfig(
+        name="compliance",
+        price_gbp_monthly=None,
+        amount_pence=None,
+        currency="gbp",
+        interval="none",
+        monthly_query_limit=0,  # bespoke, usage- or seat-billed per contract
+        byok=True,
+        sso=True,
+        audit_log=True,
+        dashboard=True,
+        semantic_scoring=True,
+        contact_sales=True,
+        stripe_price_env="STRIPE_PRICE_COMPLIANCE",
+    ),
 }
+
+
+# The default / headline self-serve product is PRO. This constant exists so
+# call sites don't have to hard-code the string in three places.
+DEFAULT_TIER: Tier = "pro"
+
+
+def get_default_tier() -> TierConfig:
+    """Return the default / headline self-serve tier (PRO £49/mo).
+
+    WHY this exists: marketing pages, API ``/pricing`` endpoints, and the
+    CLI all want one canonical answer to "what should we show first?".
+    Centralising it means a future re-launch only flips one constant.
+    """
+    return TIERS[DEFAULT_TIER]
+
+
+def list_tiers(*, self_serve_only: bool = False) -> list[TierConfig]:
+    """Return tiers in display order, PRO first.
+
+    Args:
+        self_serve_only: If True, omit ``contact_sales`` tiers
+            (TEAM / ENTERPRISE / COMPLIANCE) — useful for rendering the
+            Stripe Checkout picker that should never let a user click
+            "Subscribe" on a tier we sell via humans.
+
+    WHY list (not dict): order matters for UI rendering and dict ordering
+    is an implementation detail callers shouldn't depend on.
+    """
+    tiers = list(TIERS.values())
+    if self_serve_only:
+        tiers = [t for t in tiers if not t.contact_sales]
+    return tiers
 
 
 # ---------------------------------------------------------------------------
@@ -455,9 +544,14 @@ class BillingClient:
             self._set_tier_local(customer_id, "free", subscription_id=None)
             return f"free:{customer_id}"
 
-        if tier_typed == "enterprise":
+        # Any contact-sales tier (TEAM / ENTERPRISE / COMPLIANCE) is routed
+        # to humans rather than self-serve Stripe Checkout. We log and
+        # return a stable sentinel so the API surface can render a "Talk to
+        # sales" CTA instead of a Stripe URL.
+        if cfg.contact_sales:
             logger.info(
-                "enterprise subscription requested for %s — routing to sales",
+                "%s subscription requested for %s — routing to sales",
+                tier_typed,
                 customer_id,
             )
             return "contact-sales"
@@ -698,10 +792,20 @@ class BillingClient:
     def _parse_and_verify(self, payload: bytes, signature: str) -> dict[str, Any]:
         """Parse a webhook payload and verify the Stripe-Signature header.
 
-        WHY we hand-roll verification rather than always using the Stripe
-        SDK: in dev mode the SDK may not be installed, and we still want
-        the rest of the webhook code path to be exercisable in tests. We
-        use ``hmac.compare_digest`` to avoid timing attacks.
+        WHY ``stripe.Webhook.construct_event`` is preferred: it is the
+        Stripe-maintained reference implementation of the v1 signing
+        scheme, including the constant-time comparison and the 5-minute
+        replay tolerance. Hand-rolling our own verifier is a footgun —
+        any divergence from Stripe's behaviour (new ``v2`` scheme,
+        timestamp rules, etc.) becomes a silent security regression on
+        our side, not theirs. We delegate when the SDK is available.
+
+        WHY a fallback still exists: when the Stripe SDK is not
+        installed (dev mode, contributor laptops, CI without the extra),
+        we still want the webhook code path to be exercisable. The
+        fallback uses ``hmac.compare_digest`` + a 5-minute replay window
+        — the same algorithm the SDK uses — and is only reachable when
+        ``_stripe_sdk is None``.
         """
         if not self._webhook_secret:
             if self._dev_mode:
@@ -714,6 +818,23 @@ class BillingClient:
         if not signature:
             raise BillingError("missing Stripe-Signature header")
 
+        if _stripe_sdk is not None:
+            # Canonical path: Stripe SDK does signature + replay verification.
+            try:
+                event = _stripe_sdk.Webhook.construct_event(
+                    payload=payload,
+                    sig_header=signature,
+                    secret=self._webhook_secret,
+                )
+            except Exception as exc:  # noqa: BLE001 - SDK surfaces multiple exception classes
+                # Covers SignatureVerificationError, ValueError (bad JSON), etc.
+                raise BillingError(f"invalid Stripe-Signature: {exc}") from exc
+            # ``construct_event`` returns a ``stripe.Event`` (dict-like).
+            # Convert to a plain dict so downstream handlers don't depend
+            # on SDK types and the rest of this file stays SDK-agnostic.
+            return dict(event) if not isinstance(event, dict) else event
+
+        # Fallback (no SDK available): mirror Stripe's v1 algorithm.
         timestamp, sig = self._parse_signature_header(signature)
         signed_payload = f"{timestamp}.{payload.decode('utf-8')}".encode("utf-8")
         expected = hmac.new(
@@ -724,7 +845,7 @@ class BillingClient:
         if not hmac.compare_digest(expected, sig):
             raise BillingError("invalid Stripe-Signature")
 
-        # Optional replay-window check: reject events older than 5 minutes.
+        # Replay-window check: reject events older than 5 minutes.
         try:
             ts_int = int(timestamp)
             if abs(time.time() - ts_int) > 300:
@@ -758,10 +879,14 @@ class BillingClient:
         amount = session_obj.get("amount_total")
         if amount is None:
             return None
-        # Stripe amounts are minor units (pence).
-        if amount >= 19_900:
+        # Stripe amounts are minor units (pence). Thresholds are anchored
+        # to the canonical ``amount_pence`` values in TIERS so a future
+        # price change only has to touch the matrix above.
+        team_pence = TIERS["team"].amount_pence or 19_900
+        pro_pence = TIERS["pro"].amount_pence or 4_900
+        if amount >= team_pence:
             return "team"
-        if amount >= 2_900:
+        if amount >= pro_pence:
             return "pro"
         return None
 
@@ -893,7 +1018,9 @@ async def _test_webhook_checkout_completed_upgrades(tmp_dir: Path) -> None:
                 "object": {
                     "customer": cust,
                     "subscription": "sub_test_1",
-                    "amount_total": 2_900,
+                    # Anchored to PRO's canonical amount_pence (£49 = 4_900)
+                    # so the inference threshold and this fixture stay in sync.
+                    "amount_total": TIERS["pro"].amount_pence,
                 }
             },
         }
@@ -939,10 +1066,51 @@ async def _test_webhook_subscription_deleted_downgrades(tmp_dir: Path) -> None:
     assert (await bc.check_quota(cust)).tier == "free"
 
 
+def _test_pro_is_default_tier() -> None:
+    """PRO £49/mo is the canonical default + first in list_tiers()."""
+    pro = get_default_tier()
+    assert pro.name == "pro"
+    assert pro.price_gbp_monthly == 49
+    assert pro.amount_pence == 4_900
+    assert pro.currency == "gbp"
+    assert pro.interval == "month"
+    assert pro.contact_sales is False
+    # Insertion order: PRO must be first when iterating TIERS / list_tiers.
+    assert list(TIERS.keys())[0] == "pro"
+    assert list_tiers()[0].name == "pro"
+    # Self-serve filter must drop TEAM / ENTERPRISE / COMPLIANCE.
+    self_serve = list_tiers(self_serve_only=True)
+    self_serve_names = {t.name for t in self_serve}
+    assert "pro" in self_serve_names
+    assert "free" in self_serve_names
+    assert self_serve_names.isdisjoint({"team", "enterprise", "compliance"})
+
+
+def _test_contact_sales_flags() -> None:
+    """TEAM / ENTERPRISE / COMPLIANCE must still exist and be contact_sales."""
+    for tier_name in ("team", "enterprise", "compliance"):
+        cfg = TIERS[tier_name]  # type: ignore[index]
+        assert cfg.contact_sales is True, f"{tier_name} must be contact_sales"
+    # FREE and PRO remain self-serve.
+    assert TIERS["free"].contact_sales is False
+    assert TIERS["pro"].contact_sales is False
+
+
+async def _test_contact_sales_routes_to_sales(tmp_dir: Path) -> None:
+    """create_subscription on a contact_sales tier returns the sentinel."""
+    bc = _fresh_client(tmp_dir)
+    cust = await bc.get_or_create_customer("team@example.com")
+    for tier_name in ("team", "enterprise", "compliance"):
+        result = await bc.create_subscription(cust, tier_name)
+        assert result == "contact-sales", f"{tier_name} must route to sales"
+
+
 async def _run_all_tests() -> None:
     """Run the dev-mode test suite into a temp directory."""
     import tempfile
 
+    _test_pro_is_default_tier()
+    _test_contact_sales_flags()
     with tempfile.TemporaryDirectory(prefix="quorum-billing-") as td:
         tmp = Path(td)
         await _test_dev_mode_customer_and_quota(tmp / "a")
@@ -951,6 +1119,7 @@ async def _run_all_tests() -> None:
         await _test_webhook_checkout_completed_upgrades(tmp / "d")
         await _test_webhook_bad_signature_rejects(tmp / "e")
         await _test_webhook_subscription_deleted_downgrades(tmp / "f")
+        await _test_contact_sales_routes_to_sales(tmp / "g")
     logger.info("all dev-mode billing tests passed")
 
 
