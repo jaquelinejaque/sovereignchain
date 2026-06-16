@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Quorum — the Switzerland of LLMs</title>
-<meta name="description" content="Quorum routes one prompt to N models, scores agreement, returns a verdict. Vendor-neutral consensus for LLMs.">
+<title>Quorum — Multi-LLM consensus engine. Pro £49/mo.</title>
+<meta name="description" content="Quorum is a multi-LLM consensus engine for solo devs. Pro £49/mo, BYOK, cancel anytime. Hosted at quorum-ai.dev.">
 <meta name="color-scheme" content="dark light">
 <style>
 :root{
@@ -59,6 +59,28 @@ ul.bul{padding-left:18px;margin:8px 0}
 ul.bul li{margin:8px 0}
 .notice{border:1px solid var(--warn);background:rgba(255,180,84,.06);border-radius:8px;padding:14px 16px;font-size:14px}
 .notice strong{color:var(--warn);font-family:var(--mono)}
+.pricing-row{display:grid;grid-template-columns:1.2fr 1fr;gap:18px;margin-top:18px;align-items:start}
+.pricing-card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px 22px;position:relative}
+.pricing-card.pro{border:2px solid var(--accent);box-shadow:0 0 0 4px rgba(124,240,162,.08);transform:scale(1.02)}
+.pricing-card .badge-pop{position:absolute;top:-10px;left:18px;background:var(--accent);color:#0b0d10;font-family:var(--mono);font-size:11px;font-weight:700;padding:3px 8px;border-radius:6px;letter-spacing:.04em;text-transform:uppercase}
+.pricing-card h3{color:var(--accent);font-size:18px;margin-bottom:6px}
+.pricing-card .price-big{font-family:var(--mono);font-size:28px;color:var(--fg);margin:6px 0 4px}
+.pricing-card .price-sub{font-family:var(--mono);font-size:12px;color:var(--muted);margin-bottom:14px}
+.pricing-card ul.bul{margin:10px 0 16px}
+.pricing-card ul.bul li{font-size:14px}
+.cta-primary{font-family:var(--mono);display:inline-block;padding:11px 18px;border:1px solid var(--accent);border-radius:8px;background:var(--accent);color:#0b0d10;font-size:13px;font-weight:700}
+.cta-primary:hover{text-decoration:none;opacity:.9}
+.higher-tiers{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:18px}
+.tier-mini{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px}
+.tier-mini h3{font-size:14px;color:var(--accent);margin-bottom:4px}
+.tier-mini .price-mini{font-family:var(--mono);color:var(--fg);font-size:15px;margin:4px 0}
+.tier-mini p{font-size:13px;color:var(--muted);margin:6px 0 0}
+.tiers-side{display:flex;flex-direction:column;gap:12px}
+@media (max-width:640px){
+  .pricing-row{grid-template-columns:1fr}
+  .higher-tiers{grid-template-columns:1fr}
+  .pricing-card.pro{transform:none}
+}
 footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px}
 @media (max-width:640px){
   .grid{grid-template-columns:repeat(2,1fr)}
@@ -84,16 +106,16 @@ footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-fa
 <section>
   <span class="tag">v0.4 alpha</span>
   <h1>Quorum</h1>
-  <p style="font-family:var(--mono);color:var(--accent);font-size:18px;margin-top:-4px">The Switzerland of LLMs.</p>
-  <p>One prompt, N models, a scored verdict. Quorum is a vendor-neutral consensus router that asks five frontier LLMs the same question, measures agreement, and tells you when they disagree — so you stop trusting a single oracle.</p>
+  <p style="font-family:var(--mono);color:var(--accent);font-size:18px;margin-top:-4px">Multi-LLM consensus engine. Pro £49/mo for solo devs.</p>
+  <p>One prompt, N models, a scored verdict. Quorum is a vendor-neutral consensus engine that asks frontier LLMs the same question, measures agreement, and tells you when they disagree — so you stop trusting a single oracle.</p>
   <div class="badges">
     <span class="badge">GitHub <strong>★ 2.4k</strong></span>
     <a class="badge" href="https://news.ycombinator.com/item?id=quorum" target="_blank" rel="noopener">Show HN &rarr;</a>
     <a class="badge" href="https://github.com/jaquelinejaque/sovereignchain" target="_blank" rel="noopener">Source &rarr;</a>
   </div>
   <div class="row" style="margin-top:18px">
+    <a class="cta-primary" href="#pricing">Start Pro — £49/mo</a>
     <a class="cta" href="https://github.com/jaquelinejaque/sovereignchain#install">$ pip install quorum-cli</a>
-    <a class="cta" href="#tiers">Pricing</a>
   </div>
 </section>
 
@@ -154,40 +176,57 @@ footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-fa
 </section>
 
 <!-- 4. BILLING TIERS -->
-<section id="tiers">
-  <h2>Billing</h2>
-  <p class="muted">Pay for tokens, not seats. BYO keys if you want; we'll meter.</p>
-  <table>
-    <thead>
-      <tr><th>Tier</th><th>For</th><th>What you get</th><th>Price</th></tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td data-l="Tier">Self-host</td>
-        <td data-l="For">Hackers, OSS</td>
-        <td data-l="What">CLI + library, Apache 2.0, your keys, your bill.</td>
-        <td data-l="Price" class="price">£0</td>
-      </tr>
-      <tr>
-        <td data-l="Tier">Indie</td>
-        <td data-l="For">Solo devs, side projects</td>
-        <td data-l="What">Hosted Quorum, 5 backends, 500k tokens/mo, audit log.</td>
-        <td data-l="Price" class="price">£19/mo</td>
-      </tr>
-      <tr>
-        <td data-l="Tier">Team</td>
-        <td data-l="For">Startups, agencies</td>
-        <td data-l="What">10 backends, 10M tokens/mo, SSO, signed evidence chain.</td>
-        <td data-l="Price" class="price">£299/mo</td>
-      </tr>
-      <tr>
-        <td data-l="Tier">Sovereign</td>
-        <td data-l="For">Regulated, gov, pharma</td>
-        <td data-l="What">On-prem, your jurisdiction, your keys, contract SLAs.</td>
-        <td data-l="Price" class="price">talk to us</td>
-      </tr>
-    </tbody>
-  </table>
+<section id="pricing">
+  <h2>Pricing</h2>
+  <p class="muted">Built for solo devs. Pro is the headline. Higher tiers exist when you need them.</p>
+
+  <div class="pricing-row">
+    <div class="pricing-card pro" id="tier-pro">
+      <span class="badge-pop">Most popular</span>
+      <h3>Pro</h3>
+      <div class="price-big">£49<span style="font-size:14px;color:var(--muted)">/mo</span></div>
+      <div class="price-sub">For solo devs shipping real software.</div>
+      <ul class="bul">
+        <li>BYOK — bring your own provider keys</li>
+        <li>All 13 evolution loops (where functional in v0.1.x)</li>
+        <li>Cancel anytime. No annual lock-in.</li>
+      </ul>
+      <a class="cta-primary" href="#pricing">Start Pro — £49/mo</a>
+    </div>
+
+    <div class="tiers-side">
+      <div class="tier-mini">
+        <h3>Self-host</h3>
+        <div class="price-mini">£0</div>
+        <p>CLI + library, Apache 2.0, your keys, your bill. For hackers and OSS.</p>
+      </div>
+      <div class="tier-mini">
+        <h3>Indie</h3>
+        <div class="price-mini">£19/mo</div>
+        <p>Hosted Quorum, fewer backends, side-project quota. Step up to Pro when you outgrow it.</p>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:36px;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.06em">Higher tiers</h3>
+  <div class="higher-tiers">
+    <div class="tier-mini">
+      <h3>Team</h3>
+      <div class="price-mini">£299/mo</div>
+      <p>10 backends, 10M tokens/mo, SSO, signed evidence chain. Startups & agencies.</p>
+    </div>
+    <div class="tier-mini">
+      <h3>Enterprise</h3>
+      <div class="price-mini">talk to us</div>
+      <p>Org-wide rollout, custom SLAs, dedicated support, procurement-friendly contracts.</p>
+    </div>
+    <div class="tier-mini">
+      <h3>Compliance / Sovereign</h3>
+      <div class="price-mini">talk to us</div>
+      <p>On-prem, your jurisdiction, your keys. Regulated, gov, pharma. Contract SLAs.</p>
+    </div>
+  </div>
+  <p class="muted" style="margin-top:14px;font-size:13px">Higher tiers: <a href="mailto:jaqueline@hsp-protocol.com">jaqueline@hsp-protocol.com</a></p>
 </section>
 
 <!-- 5. WHY INCUMBENTS CAN'T SELL THIS -->
@@ -210,8 +249,8 @@ footer{margin-top:80px;padding-top:24px;border-top:1px solid var(--line);font-fa
 </section>
 
 <footer>
-  <div>Built by Jaqueline Martins &nbsp;·&nbsp; Sovereign Chain Ltd (UK)</div>
-  <div>© 2026 &nbsp;·&nbsp; <a href="https://github.com/jaquelinejaque/sovereignchain">source</a></div>
+  <div>Built by Jaqueline Martins &nbsp;·&nbsp; Sovereign Chain Ltd (UK) &nbsp;·&nbsp; <a href="https://quorum-ai.dev">quorum-ai.dev</a></div>
+  <div>Higher tiers: <a href="mailto:jaqueline@hsp-protocol.com">jaqueline@hsp-protocol.com</a> &nbsp;·&nbsp; © 2026 &nbsp;·&nbsp; <a href="https://github.com/jaquelinejaque/sovereignchain">source</a></div>
 </footer>
 
 </div>
