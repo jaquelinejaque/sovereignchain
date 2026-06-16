@@ -294,6 +294,21 @@ async def _apply_rlhf_and_hebbian(
     except Exception as e:  # noqa: BLE001
         logger.debug("HebbianStore path skipped (%s)", e)
 
+    # Adversarial-probe penalty: drop the weight of models that have
+    # demonstrably fallen for known attacks recently. Best-effort, fully
+    # additive (default 1.0 if the loop is unavailable / never run) so
+    # callers without an adversarial DB see identical behaviour.
+    adv_penalties: dict[str, float] = {}
+    try:
+        from quorum.evolution.adversarial import AdversarialProbe
+        probe = AdversarialProbe()
+        for r in valid:
+            adv_penalties[r.name] = await probe.penalty_multiplier(
+                r.name, query_class
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("adversarial penalty path skipped (%s)", e)
+
     # Apply multipliers, then renormalise to a probability distribution.
     new: list[float] = []
     for i, r in enumerate(valid):
@@ -303,7 +318,13 @@ async def _apply_rlhf_and_hebbian(
             v for (a, b), v in pair_boosts.items() if a == r.name or b == r.name
         ]
         heb_mult = sum(my_boosts) / len(my_boosts) if my_boosts else 1.0
-        new.append(base_weights[i] * max(rlhf_mult, 1e-6) * heb_mult)
+        adv_mult = adv_penalties.get(r.name, 1.0)
+        new.append(
+            base_weights[i]
+            * max(rlhf_mult, 1e-6)
+            * heb_mult
+            * adv_mult
+        )
 
     total = sum(new) or 1.0
     new = [w / total for w in new]
@@ -396,6 +417,9 @@ async def consensus(
     budget_usd: float = 0.05,
     route: bool = True,
     opt_in_synthetic: bool = False,
+    enable_self_prompt: bool = True,
+    self_prompt_threshold: float | None = None,
+    self_prompt_rewriter: Any | None = None,
 ) -> ConsensusResult:
     """Run N LLMs in parallel and synthesize a consensus answer.
 
@@ -492,6 +516,80 @@ async def consensus(
         )
 
     confidence, base_weights, disagree_pairs = await _score_semantic(valid)
+
+    # Loop 11 — Self-prompting retry. If the first pass came back with
+    # low semantic agreement we ask the strongest available model to
+    # clarify+decompose the original query, then re-run a single round
+    # of providers on the rewritten prompt. Quorum-validated design:
+    # at most one rewrite by default (cost vs quality), append-as-context
+    # rather than replace, and never overwrite the original responses
+    # — we replace `valid` only if the new pass returned anything usable.
+    self_prompt_fired = False
+    if enable_self_prompt:
+        try:
+            from quorum.evolution.self_prompt import (
+                DEFAULT_REWRITE_CONFIDENCE_THRESHOLD,
+                PromptRewriter,
+            )
+            threshold = (
+                self_prompt_threshold
+                if self_prompt_threshold is not None
+                else DEFAULT_REWRITE_CONFIDENCE_THRESHOLD
+            )
+            if confidence < threshold:
+                rewriter = self_prompt_rewriter or PromptRewriter(
+                    confidence_threshold=threshold
+                )
+                rewritten_prompt = await rewriter.rewrite(
+                    prompt, confidence, query_class
+                )
+                if rewritten_prompt:
+                    # Re-run the same selected providers on the rewritten
+                    # prompt. We do NOT re-route — the same ensemble that
+                    # produced the original disagreement is the fair
+                    # apples-to-apples comparison.
+                    retry_responses = await asyncio.gather(
+                        *(_call(p) for p in selected)
+                    )
+                    retry_valid = [
+                        r for r in retry_responses if r.response and not r.error
+                    ]
+                    if retry_valid:
+                        new_confidence, new_base_weights, new_disagree_pairs = (
+                            await _score_semantic(retry_valid)
+                        )
+                        # Persist the delta unconditionally so the meta-
+                        # learner sees BOTH wins and losses (negative
+                        # deltas tell it to disable rewriting for that
+                        # query class).
+                        try:
+                            await rewriter.log_rewrite(
+                                original=prompt,
+                                rewritten=rewritten_prompt,
+                                original_confidence=confidence,
+                                new_confidence=new_confidence,
+                                query_class=query_class,
+                                rewriter_name=getattr(
+                                    rewriter.rewriter_provider, "name", ""
+                                ) or "auto",
+                            )
+                        except Exception as e:  # noqa: BLE001
+                            logger.debug(
+                                "self_prompt: log_rewrite skipped (%s)", e
+                            )
+                        # Only adopt the rewrite if it actually improved
+                        # confidence — otherwise the original ensemble
+                        # response is the safer bet.
+                        if new_confidence > confidence:
+                            responses = retry_responses
+                            valid = retry_valid
+                            confidence = new_confidence
+                            base_weights = new_base_weights
+                            disagree_pairs = new_disagree_pairs
+                            self_prompt_fired = True
+        except Exception as e:  # noqa: BLE001
+            logger.debug("self_prompt loop skipped (%s)", e)
+
     new_weights, rlhf_applied, hebbian_mean = await _apply_rlhf_and_hebbian(
         valid, base_weights, user_id, query_class, confidence
     )
@@ -518,6 +616,7 @@ async def consensus(
         "hebbian": hebbian_mean != 1.0,
         "memory": memory_fired,
         "competition": competition_fired,
+        "self_prompt": self_prompt_fired,
     }
 
     # Loop 6 — Meta-learning: observe which loops fired and the resulting
