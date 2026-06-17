@@ -121,8 +121,27 @@ def welcome_html(api_key: str, tier: str = "Pro", email: str = "") -> str:
         <tr><td style="padding:0 36px 24px;">
           <div style="font-size:13px;color:#8b8b90;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;">Three ways to use it</div>
 
+          <div style="margin-bottom:18px;padding:16px;background:#1a1107;border:1px solid #caac7d;border-radius:6px;">
+            <div style="font-size:14px;color:#caac7d;margin-bottom:8px;"><strong>⚠️ FIRST: register your provider keys (BYOK)</strong></div>
+            <p style="font-size:13px;color:#d8d8dc;line-height:1.6;margin:0 0 10px;">
+              Quorum is BYOK — you bring keys for Claude/GPT/Gemini/etc. and Quorum
+              orchestrates the consensus across them. Your providers, your bills.
+              Quorum charges only the £49/mo for orchestration + audit + dashboard.
+            </p>
+            <pre style="margin:0;padding:12px;background:#050507;border:1px solid #2a2a30;border-radius:6px;font-family:'SF Mono',Menlo,monospace;font-size:11px;color:#caac7d;overflow-x:auto;">curl -X POST https://api.quorum-ai.dev/v1/customer/keys \\
+  -H "X-Quorum-API-Key: {api_key[:14]}..." \\
+  -H "Content-Type: application/json" \\
+  -d '{{"anthropic":"sk-ant-...","openai":"sk-...","gemini":"..."}}'</pre>
+            <p style="font-size:12px;color:#9a9aa0;margin:8px 0 0;">
+              Supported: anthropic, openai, gemini, nvidia, mistral, cohere, grok,
+              dashscope, replicate, deepseek, zhipu, moonshot. Add as many as you
+              want — providers without keys are simply excluded from your pool.
+              Encrypted at rest (Fernet, server-side KEK).
+            </p>
+          </div>
+
           <div style="margin-bottom:18px;">
-            <div style="font-size:14px;color:#e8e8ea;margin-bottom:6px;"><strong>1. curl</strong></div>
+            <div style="font-size:14px;color:#e8e8ea;margin-bottom:6px;"><strong>1. curl (after keys are registered)</strong></div>
             <pre style="margin:0;padding:14px;background:#050507;border:1px solid #2a2a30;border-radius:6px;font-family:'SF Mono',Menlo,monospace;font-size:12px;color:#caac7d;overflow-x:auto;">curl -X POST https://api.quorum-ai.dev/v1/consensus \\
   -H "X-Quorum-API-Key: {api_key[:14]}..." \\
   -H "Content-Type: application/json" \\

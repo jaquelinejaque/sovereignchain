@@ -883,9 +883,32 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
                 },
             )
 
-        # Run the consensus.
+        # Run the consensus. BYOK: pull this customer's registered
+        # provider keys and pass them as the SOLE source — operator env
+        # keys are deliberately excluded for hosted callers so each
+        # customer pays their own providers directly. If the customer
+        # has registered zero keys, consensus() raises and we surface a
+        # 422 with a hint instead of secretly billing the operator.
         try:
-            result: ConsensusResult = await consensus(body.prompt)
+            from quorum.customer_keys import default_store
+            from quorum.providers.registry import load_default_providers
+            ck_store = default_store()
+            customer_keys_dict = ck_store.get_all(api_record.user_id)
+            providers = load_default_providers(customer_keys=customer_keys_dict)
+            if not providers:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=(
+                        "no provider keys configured for this account. "
+                        "POST your API keys to /v1/customer/keys first "
+                        "(supported providers: anthropic, openai, gemini, "
+                        "nvidia, mistral, cohere, grok, dashscope, replicate, "
+                        "deepseek, zhipu, moonshot)."
+                    ),
+                )
+            result: ConsensusResult = await consensus(body.prompt, providers=providers, route=False)
+        except HTTPException:
+            raise
         except RuntimeError as exc:
             # No providers configured — caller's environment problem, but
             # we surface it as a service error so they fix their deploy.
@@ -1063,6 +1086,84 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
             accepted=True,
             stats=updated_stats,
         )
+
+    # ---------- BYOK customer key management -------------------------------
+
+    @app.post("/v1/customer/keys", tags=["byok"])
+    async def set_customer_keys(
+        body: dict[str, str],
+        api_record: APIKeyRecord = Depends(_require_api_key),
+    ) -> dict[str, object]:
+        """Register one or more provider API keys for the authenticated customer.
+
+        Body is a flat ``{"provider": "key", ...}`` dict — accepted
+        providers: anthropic, openai, gemini (alias google_ai_studio),
+        nvidia, mistral, cohere, grok, dashscope (alias qwen), replicate,
+        deepseek, zhipu, moonshot. Each key is encrypted (Fernet) and
+        stored under the customer's user_id; existing entries are
+        overwritten so a re-POST is the safe way to rotate.
+
+        Empty values delete that provider's entry. Unknown provider names
+        are returned in ``rejected`` rather than raising, so a partial
+        success still lands the valid keys.
+        """
+        from quorum.customer_keys import default_store, SUPPORTED_PROVIDERS
+        store = default_store()
+        saved: list[str] = []
+        deleted: list[str] = []
+        rejected: list[str] = []
+        for raw_provider, raw_key in (body or {}).items():
+            # Normalise aliases the registry accepts
+            provider = raw_provider.lower().strip()
+            if provider in ("google_ai_studio", "glm"):
+                provider = "gemini" if provider == "google_ai_studio" else "zhipu"
+            if provider == "qwen":
+                provider = "dashscope"
+            if provider == "xai":
+                provider = "grok"
+            if provider not in SUPPORTED_PROVIDERS:
+                rejected.append(raw_provider)
+                continue
+            if raw_key is None or not str(raw_key).strip():
+                if store.delete(api_record.user_id, provider):
+                    deleted.append(provider)
+                continue
+            store.set(api_record.user_id, provider, str(raw_key))
+            saved.append(provider)
+        return {
+            "saved": saved,
+            "deleted": deleted,
+            "rejected": rejected,
+            "supported_providers": list(SUPPORTED_PROVIDERS),
+        }
+
+    @app.get("/v1/customer/keys", tags=["byok"])
+    async def list_customer_keys(
+        api_record: APIKeyRecord = Depends(_require_api_key),
+    ) -> dict[str, object]:
+        """List providers the customer has registered. Keys are NEVER returned."""
+        from quorum.customer_keys import default_store, SUPPORTED_PROVIDERS
+        store = default_store()
+        return {
+            "providers": store.list_providers(api_record.user_id),
+            "supported_providers": list(SUPPORTED_PROVIDERS),
+        }
+
+    @app.delete("/v1/customer/keys/{provider}", tags=["byok"])
+    async def delete_customer_key(
+        provider: str,
+        api_record: APIKeyRecord = Depends(_require_api_key),
+    ) -> dict[str, object]:
+        """Delete a single provider's registered key."""
+        from quorum.customer_keys import default_store
+        store = default_store()
+        ok = store.delete(api_record.user_id, provider.lower().strip())
+        if not ok:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"no key registered for provider '{provider}'",
+            )
+        return {"deleted": provider}
 
     # ---------- usage --------------------------------------------------------
 

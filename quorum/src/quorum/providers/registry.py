@@ -1,105 +1,169 @@
-"""Auto-discover available providers based on environment variables."""
+"""Auto-discover available providers based on configured API keys.
+
+Two execution paths:
+
+* **Self-host / operator mode** (``customer_keys`` is None): provider
+  selection is driven by the OS env vars. This is what the open-source
+  CLI does and what test/dev scripts hit. A provider is included iff
+  its env var is set.
+
+* **Hosted BYOK mode** (``customer_keys`` is a dict): provider selection
+  is driven by what the *customer* has registered via
+  ``POST /v1/customer/keys``. The operator's own env keys are NOT used
+  as a fallback — a provider the customer hasn't registered is simply
+  excluded from their consensus pool. This is what makes the hosted
+  £49/mo Pro tier sustainable: the customer pays Anthropic / OpenAI /
+  Gemini directly, the operator pockets the £49 as pure orchestration
+  margin. Marketing has always said "BYOK"; this is where it becomes
+  true at the API layer.
+"""
 
 from __future__ import annotations
 
 import os
+from typing import Optional
 
 from quorum.providers.base import Provider
 
 
-def load_default_providers() -> list[Provider]:
-    """Return all providers whose API keys are configured.
+def load_default_providers(
+    customer_keys: Optional[dict[str, str]] = None,
+) -> list[Provider]:
+    """Return the providers configured for this call.
 
-    Falls back gracefully if a provider's key is missing.
+    When ``customer_keys`` is provided, it is the SOLE source of API
+    keys — operator env keys are ignored. Provider modules accept
+    ``api_key=`` overrides on their factories; passing the customer key
+    there means no env-fallback happens at provider construction time
+    either, so a typo or missing key surfaces as a clean per-provider
+    "no_api_key" error rather than a stealth charge on the operator.
+
+    When ``customer_keys`` is None, fall back to the historical
+    env-var-driven behaviour for CLI / self-host / tests.
     """
     providers: list[Provider] = []
+    byok = customer_keys is not None
+    ck = customer_keys or {}
 
-    # Paid — only if key is set
-    if os.getenv("ANTHROPIC_API_KEY"):
+    def _key(*names: str) -> Optional[str]:
+        """Resolve a key from customer_keys (preferred) or env (operator mode).
+
+        ``names`` is the list of acceptable aliases (e.g. for Gemini we
+        accept both ``gemini`` and ``google_ai_studio``). The first one
+        with a value wins. In BYOK mode env is NEVER consulted.
+        """
+        for n in names:
+            v = ck.get(n)
+            if v:
+                return v
+        if byok:
+            return None
+        for n in names:
+            v = os.environ.get(n.upper() + "_API_KEY") or os.environ.get(n.upper() + "_API_TOKEN")
+            if v:
+                return v
+        return None
+
+    # Anthropic — Claude
+    k = _key("anthropic")
+    if k:
         from quorum.providers import anthropic as an
-        providers.append(an.claude_sonnet())
-        providers.append(an.claude_opus())
-        providers.append(an.claude_haiku())
+        providers.append(an.claude_sonnet() if not byok else an.ClaudeProvider(model="claude-sonnet-4-6", api_key=k))
+        providers.append(an.claude_opus() if not byok else an.ClaudeProvider(model="claude-opus-4-8", api_key=k))
+        providers.append(an.claude_haiku() if not byok else an.ClaudeProvider(model="claude-haiku-4-5", api_key=k))
 
-    if os.getenv("OPENAI_API_KEY"):
+    # OpenAI — GPT
+    k = _key("openai")
+    if k:
         from quorum.providers import openai as oa
-        providers.append(oa.gpt_4_1())
-        providers.append(oa.gpt_4o_mini())
-        # gpt-5 family included but heavy — uncomment to enable
-        # providers.append(oa.gpt_5())
-        # providers.append(oa.gpt_5_mini())
+        providers.append(oa.gpt_4_1() if not byok else oa.OpenAIProvider(model="gpt-4.1", api_key=k))
+        providers.append(oa.gpt_4o_mini() if not byok else oa.OpenAIProvider(model="gpt-4o-mini", api_key=k))
 
-    if os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_AI_STUDIO_KEY"):
+    # Google Gemini
+    k = _key("gemini", "google_ai_studio")
+    if k:
         from quorum.providers.gemini import GeminiProvider
-        providers.append(GeminiProvider())
+        providers.append(GeminiProvider(api_key=k))
 
-    # Open-source via Replicate — one key, many models
-    if os.getenv("REPLICATE_API_TOKEN"):
+    # Replicate (Llama, Qwen, DeepSeek via Replicate)
+    k = _key("replicate")
+    if k:
         from quorum.providers import replicate as r
-        providers.append(r.llama_3_3())
-        providers.append(r.deepseek_v3())
-        # Mistral, Qwen, Phi available — uncomment to add to default pool
-        # providers.append(r.mistral_large())
-        # providers.append(r.qwen_2_5())
-        # providers.append(r.phi_4())
+        providers.append(r.llama_3_3() if not byok else r.ReplicateProvider(model_slug="meta/llama-3.3-70b-instruct", api_token=k))
+        providers.append(r.deepseek_v3() if not byok else r.ReplicateProvider(model_slug="deepseek-ai/deepseek-v3", api_token=k))
 
-    # NVIDIA AI Foundation — one key, multiple frontier OSS models (free tier)
-    if os.getenv("NVIDIA_API_KEY"):
+    # NVIDIA AI Foundation — multiple OSS models on one key
+    k = _key("nvidia")
+    if k:
         from quorum.providers import nvidia as nv
-        providers.append(nv.llama_3_2_3b_nvidia())
-        providers.append(nv.llama_3_1_8b_nvidia())
-        providers.append(nv.llama_4_maverick_nvidia())
-        providers.append(nv.deepseek_v4_nvidia())
-        providers.append(nv.dracarys_70b_nvidia())
-        providers.append(nv.llama_3_3_nvidia())
+        providers.append(nv.llama_3_2_3b_nvidia() if not byok else nv.NvidiaProvider(model="meta/llama-3.2-3b-instruct", api_key=k))
+        providers.append(nv.llama_3_1_8b_nvidia() if not byok else nv.NvidiaProvider(model="meta/llama-3.1-8b-instruct", api_key=k))
+        providers.append(nv.llama_4_maverick_nvidia() if not byok else nv.NvidiaProvider(model="meta/llama-4-maverick-17b-128e-instruct", api_key=k))
+        providers.append(nv.deepseek_v4_nvidia() if not byok else nv.NvidiaProvider(model="deepseek-ai/deepseek-v4-flash", api_key=k))
+        providers.append(nv.dracarys_70b_nvidia() if not byok else nv.NvidiaProvider(model="abacusai/dracarys-llama-3.1-70b-instruct", api_key=k))
+        providers.append(nv.llama_3_3_nvidia() if not byok else nv.NvidiaProvider(model="meta/llama-3.3-70b-instruct", api_key=k))
 
-    if os.getenv("DEEPSEEK_API_KEY"):
+    # DeepSeek direct
+    k = _key("deepseek")
+    if k:
         from quorum.providers import deepseek as ds
-        providers.append(ds.deepseek_chat())
-        providers.append(ds.deepseek_reasoner())
+        providers.append(ds.deepseek_chat() if not byok else ds.DeepSeekProvider(model="deepseek-chat", api_key=k))
+        providers.append(ds.deepseek_reasoner() if not byok else ds.DeepSeekProvider(model="deepseek-reasoner", api_key=k))
 
-    if os.getenv("MISTRAL_API_KEY"):
+    # Mistral
+    k = _key("mistral")
+    if k:
         from quorum.providers import mistral as ms
-        providers.append(ms.mistral_large())
-        providers.append(ms.codestral())
-        providers.append(ms.mistral_small())
+        providers.append(ms.MistralProvider(model="mistral-large-latest", api_key=k))
+        providers.append(ms.MistralProvider(model="codestral-latest", api_key=k))
+        providers.append(ms.MistralProvider(model="mistral-small-latest", api_key=k))
 
-    if os.getenv("COHERE_API_KEY"):
+    # Cohere — uses dated model names that survive deprecations
+    k = _key("cohere")
+    if k:
         from quorum.providers import cohere as co
-        providers.append(co.command_r_plus())
-        providers.append(co.command_r())
-        providers.append(co.command_a())
+        providers.append(co.CohereProvider(model="command-r-plus-08-2024", api_key=k))
+        providers.append(co.CohereProvider(model="command-r-08-2024", api_key=k))
+        providers.append(co.CohereProvider(model="command-a-03-2025", api_key=k))
 
-    if os.getenv("XAI_API_KEY"):
+    # xAI Grok
+    k = _key("grok", "xai")
+    if k:
         from quorum.providers import grok as gk
-        providers.append(gk.grok_4())
-        providers.append(gk.grok_4_20_chat())
+        providers.append(gk.grok_4() if not byok else gk.GrokProvider(model="grok-4", api_key=k))
+        providers.append(gk.grok_4_20_chat() if not byok else gk.GrokProvider(model="grok-4-20-chat", api_key=k))
 
-    # ---- Chinese frontier pool (opt-in; see provider modules for data-residency notes) ----
+    # ---- Chinese frontier pool ----
 
-    if os.getenv("ZHIPU_API_KEY") or os.getenv("GLM_API_KEY"):
+    k = _key("zhipu", "glm")
+    if k:
         from quorum.providers import zhipu as zp
-        providers.append(zp.glm_5_2())
-        providers.append(zp.glm_5_2_air())
-        providers.append(zp.glm_4_6())
+        providers.append(zp.ZhipuProvider(model="glm-5.2", api_key=k))
+        providers.append(zp.ZhipuProvider(model="glm-5.2-air", api_key=k))
+        providers.append(zp.ZhipuProvider(model="glm-4.6", api_key=k))
 
-    if os.getenv("MOONSHOT_API_KEY"):
+    k = _key("moonshot")
+    if k:
         from quorum.providers import moonshot as mn
-        providers.append(mn.kimi_k2_6())
-        providers.append(mn.kimi_k2_turbo())
+        providers.append(mn.MoonshotProvider(model="kimi-k2.6", api_key=k))
+        providers.append(mn.MoonshotProvider(model="kimi-k2-turbo", api_key=k))
 
-    if os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY"):
+    k = _key("dashscope", "qwen")
+    if k:
         from quorum.providers import qwen as qw
-        providers.append(qw.qwen3_7_max())  # 2026-06 release; PAI MaaS workspaces
-        providers.append(qw.qwen3_max())
-        providers.append(qw.qwen3_coder_plus())
-        providers.append(qw.qwen_plus())
+        providers.append(qw.QwenProvider(model="qwen3.7-max", api_key=k))
+        providers.append(qw.QwenProvider(model="qwen3-max", api_key=k))
+        providers.append(qw.QwenProvider(model="qwen3-coder-plus", api_key=k))
+        providers.append(qw.QwenProvider(model="qwen-plus", api_key=k))
 
-    # Always try local Ollama (free, runs on user's Mac) — best effort
-    try:
-        from quorum.providers.ollama import OllamaProvider
-        providers.append(OllamaProvider())
-    except Exception:  # noqa: BLE001
-        pass
+    # Local Ollama is always tried in self-host mode (no key) but skipped in
+    # hosted BYOK because the hosted server can't reach the customer's local
+    # machine. Self-host customers keep this for free.
+    if not byok:
+        try:
+            from quorum.providers.ollama import OllamaProvider
+            providers.append(OllamaProvider())
+        except Exception:  # noqa: BLE001
+            pass
 
     return providers
