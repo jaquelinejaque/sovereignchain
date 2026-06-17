@@ -455,6 +455,22 @@ class BillingClient:
         # Dev mode is decided once at construction. Toggling it mid-run
         # would create heisenbugs ("why did Stripe suddenly start charging
         # in tests?"), so we freeze it here.
+        # Persistent customer + usage cache via Firestore when the flag is
+        # set in prod. Without this, every Cloud Run revision rollout wipes
+        # paying customers' tier/quota (they revert to free + 100 limit),
+        # forcing manual reissue. Self-host stays on the ephemeral SQLite
+        # path so a dev clone has no Firestore dependency.
+        self._fs_store = None
+        try:
+            from quorum.firestore_stores import use_firestore, FirestoreBillingCache
+            if use_firestore():
+                self._fs_store = FirestoreBillingCache()
+                logger.info("BillingClient cache backend: Firestore")
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Firestore billing cache unavailable (%s); using SQLite at %s", e, self._db_path,
+            )
+
         self._dev_mode = not self._api_key or _stripe_sdk is None
         if self._dev_mode:
             logger.warning(
@@ -644,21 +660,26 @@ class BillingClient:
             return
         period_key = _current_period_key()
 
-        with _txn(self._db_path) as conn:
-            conn.execute(
-                """INSERT INTO usage (customer_id, period_key, count)
-                   VALUES (?, ?, ?)
-                   ON CONFLICT(customer_id, period_key)
-                   DO UPDATE SET count = count + excluded.count""",
-                (customer_id, period_key, query_count),
-            )
-            row = conn.execute(
-                "SELECT tier, subscription_id FROM customers WHERE customer_id = ?",
-                (customer_id,),
-            ).fetchone()
-
-        tier: Tier = (row[0] if row else "free")  # type: ignore[assignment]
-        subscription_id: Optional[str] = row[1] if row else None
+        if self._fs_store is not None:
+            self._fs_store.increment_usage(customer_id, period_key, query_count)
+            cust = self._fs_store.get_customer(customer_id) or {}
+            tier: Tier = cust.get("tier", "free")  # type: ignore[assignment]
+            subscription_id: Optional[str] = cust.get("subscription_id")
+        else:
+            with _txn(self._db_path) as conn:
+                conn.execute(
+                    """INSERT INTO usage (customer_id, period_key, count)
+                       VALUES (?, ?, ?)
+                       ON CONFLICT(customer_id, period_key)
+                       DO UPDATE SET count = count + excluded.count""",
+                    (customer_id, period_key, query_count),
+                )
+                row = conn.execute(
+                    "SELECT tier, subscription_id FROM customers WHERE customer_id = ?",
+                    (customer_id,),
+                ).fetchone()
+            tier: Tier = (row[0] if row else "free")  # type: ignore[assignment]
+            subscription_id: Optional[str] = row[1] if row else None
 
         if metadata:
             logger.debug("usage metadata for %s: %s", customer_id, metadata)
@@ -731,18 +752,22 @@ class BillingClient:
         Stripe verification path here, we won't have to change call sites.
         """
         period_key = _current_period_key()
-        with _txn(self._db_path) as conn:
-            row = conn.execute(
-                "SELECT tier FROM customers WHERE customer_id = ?",
-                (customer_id,),
-            ).fetchone()
-            used_row = conn.execute(
-                "SELECT count FROM usage WHERE customer_id = ? AND period_key = ?",
-                (customer_id, period_key),
-            ).fetchone()
-
-        tier: Tier = (row[0] if row else "free")  # type: ignore[assignment]
-        used = int(used_row[0]) if used_row else 0
+        if self._fs_store is not None:
+            tier_str = self._fs_store.get_tier(customer_id) or "free"
+            tier: Tier = tier_str  # type: ignore[assignment]
+            used = self._fs_store.get_usage(customer_id, period_key)
+        else:
+            with _txn(self._db_path) as conn:
+                row = conn.execute(
+                    "SELECT tier FROM customers WHERE customer_id = ?",
+                    (customer_id,),
+                ).fetchone()
+                used_row = conn.execute(
+                    "SELECT count FROM usage WHERE customer_id = ? AND period_key = ?",
+                    (customer_id, period_key),
+                ).fetchone()
+            tier: Tier = (row[0] if row else "free")  # type: ignore[assignment]
+            used = int(used_row[0]) if used_row else 0
         limit = TIERS[tier].monthly_query_limit
         if limit == 0:  # unlimited (enterprise)
             remaining = 2**31 - 1
@@ -976,13 +1001,20 @@ class BillingClient:
         *,
         subscription_id: Optional[str],
     ) -> None:
-        """Persist a tier change in the SQLite cache.
+        """Persist a tier change. Firestore-backed in hosted mode, SQLite otherwise.
 
         WHY UPSERT rather than UPDATE: webhooks can arrive for a customer
         whose row we never created locally (e.g. they paid via a flow that
         bypassed ``get_or_create_customer``). We still want to honour the
         upgrade.
         """
+        if self._fs_store is not None:
+            self._fs_store.set_tier(
+                customer_id, tier,
+                email=f"{customer_id}@unknown.local",
+                subscription_id=subscription_id,
+            )
+            return
         with _txn(self._db_path) as conn:
             conn.execute(
                 """INSERT INTO customers
