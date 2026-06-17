@@ -887,10 +887,16 @@ class BillingClient:
             except Exception as exc:  # noqa: BLE001 - SDK surfaces multiple exception classes
                 # Covers SignatureVerificationError, ValueError (bad JSON), etc.
                 raise BillingError(f"invalid Stripe-Signature: {exc}") from exc
-            # ``construct_event`` returns a ``stripe.Event`` (dict-like).
-            # Convert to a plain dict so downstream handlers don't depend
-            # on SDK types and the rest of this file stays SDK-agnostic.
-            return dict(event) if not isinstance(event, dict) else event
+            # ``construct_event`` returns a ``stripe.Event`` (a StripeObject
+            # subclass). ``dict(event)`` triggers ``__iter__`` which Stripe
+            # implements as positional access, raising ``KeyError: 0``.
+            # Use ``to_dict_recursive`` when available; otherwise re-parse
+            # the already-verified payload (it's the same bytes Stripe signed).
+            if isinstance(event, dict):
+                return event
+            if hasattr(event, "to_dict_recursive"):
+                return event.to_dict_recursive()
+            return json.loads(payload.decode("utf-8"))
 
         # Fallback (no SDK available): mirror Stripe's v1 algorithm.
         timestamp, sig = self._parse_signature_header(signature)
