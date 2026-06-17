@@ -75,6 +75,24 @@ def load_default_providers() -> list[Provider]:
         providers.append(gk.grok_4())
         providers.append(gk.grok_4_20_chat())
 
+    # ---- Chinese frontier pool (opt-in; see provider modules for data-residency notes) ----
+
+    if os.getenv("ZHIPU_API_KEY") or os.getenv("GLM_API_KEY"):
+        from quorum.providers import zhipu as zp
+        providers.append(zp.glm_5_2())
+        providers.append(zp.glm_5_2_air())
+        providers.append(zp.glm_4_6())
+
+    if os.getenv("MOONSHOT_API_KEY"):
+        from quorum.providers import moonshot as mn
+        providers.append(mn.kimi_k2_6())
+        providers.append(mn.kimi_k2_turbo())
+
+    if os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY"):
+        from quorum.providers import qwen as qw
+        providers.append(qw.qwen3_max())
+        providers.append(qw.qwen_plus())
+
     # Always try local Ollama (free, runs on user's Mac) — best effort
     try:
         from quorum.providers.ollama import OllamaProvider
