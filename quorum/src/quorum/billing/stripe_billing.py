@@ -289,6 +289,12 @@ class WebhookResult(BaseModel):
     customer_id: Optional[str] = None
     tier: Optional[Tier] = None
     message: str = ""
+    # Set on checkout.session.completed so the server-side webhook endpoint
+    # can issue an API key and email it. Stripe puts the buyer email in
+    # data.object.customer_details.email — we pull it once here so the
+    # endpoint doesn't have to re-parse the raw payload.
+    customer_email: Optional[str] = None
+    is_new_paid_upgrade: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -775,13 +781,27 @@ class BillingClient:
         handled = False
         new_tier: Optional[Tier] = None
         message = ""
+        customer_email: Optional[str] = None
+        is_new_paid_upgrade = False
 
         if etype == "checkout.session.completed":
             sub_id = data_object.get("subscription")
             new_tier = self._infer_tier_from_price(data_object)
+            # Stripe puts the buyer email in customer_details.email after the
+            # session completes. Fall back to data_object.customer_email
+            # (older API versions) and finally None if the buyer was a
+            # guest checkout with no email at all.
+            details = data_object.get("customer_details") or {}
+            customer_email = details.get("email") or data_object.get("customer_email")
             if customer_id and new_tier:
                 self._set_tier_local(customer_id, new_tier, subscription_id=sub_id)
                 handled = True
+                # Flag for the server endpoint: this is a NEW paying upgrade
+                # that needs an API key + welcome email. We only set this
+                # on checkout.session.completed (not on subscription.updated)
+                # so existing subscribers updating their plan don't get a
+                # second welcome email.
+                is_new_paid_upgrade = new_tier != "free"
                 message = f"upgraded {customer_id} to {new_tier}"
 
         elif etype == "customer.subscription.updated":
@@ -819,6 +839,8 @@ class BillingClient:
             customer_id=customer_id,
             tier=new_tier,
             message=message,
+            customer_email=customer_email,
+            is_new_paid_upgrade=is_new_paid_upgrade,
         )
 
     # ------------------------------------------------------------------

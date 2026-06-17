@@ -1102,8 +1102,37 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="webhook handler error",
             ) from exc
+
+        # New paid upgrade → issue an API key and email it to the buyer.
+        # We swallow any failure here so Stripe still gets its 200 — the buyer
+        # is in `customer_id` / `customer_email` and we can always re-issue
+        # manually via the admin path if the email pipe is down.
+        emailed = False
+        if result.is_new_paid_upgrade and result.customer_email and result.tier:
+            try:
+                plaintext, _record = await state.api_key_store.issue(
+                    user_id=result.customer_email, tier=result.tier,
+                )
+                from quorum.billing.email_sender import send_welcome_email
+                emailed = await send_welcome_email(
+                    to=result.customer_email,
+                    api_key=plaintext,
+                    tier=result.tier.capitalize() if isinstance(result.tier, str) else "Pro",
+                )
+                logger.info(
+                    "issued+emailed API key to %s tier=%s emailed=%s",
+                    result.customer_email, result.tier, emailed,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.exception(
+                    "post-upgrade onboarding failed for %s (%s) — will need manual key issue",
+                    result.customer_email, exc,
+                )
+
         # Stripe wants a 200 + small JSON ack; anything else triggers retries.
-        return result.model_dump(mode="json")
+        response = result.model_dump(mode="json")
+        response["emailed"] = emailed
+        return response
 
     # ---------- synthetic-data corpus stats ---------------------------------
 
