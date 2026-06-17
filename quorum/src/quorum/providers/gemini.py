@@ -16,8 +16,8 @@ _OUTPUT_PER_1M = 0.30
 class GeminiProvider(Provider):
     name = "gemini-flash"
 
-    def __init__(self, model: str = "gemini-2.5-flash", api_key: str | None = None):
-        self.model = model
+    def __init__(self, model: str | None = None, api_key: str | None = None):
+        self.model = model or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
         self.api_key = (
             api_key
             or os.getenv("GEMINI_API_KEY")

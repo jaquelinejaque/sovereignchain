@@ -23,7 +23,7 @@ import Module from 'node:module';
 
 type ConfigMap = Record<string, unknown>;
 let fakeConfig: ConfigMap = {
-  endpoint: 'https://quorum-ai.dev',
+  endpoint: 'https://api.quorum-ai.dev',
   apiKey: 'test-key-abc',
   providers: ['gemini-flash', 'claude-sonnet-4-6'],
   maxLatencyMs: 30000
@@ -113,7 +113,7 @@ function textResponse(body: string, status: number): Response {
 
 test('ask() posts the documented request shape', async () => {
   fakeConfig = {
-    endpoint: 'https://quorum-ai.dev/',
+    endpoint: 'https://api.quorum-ai.dev/',
     apiKey: 'test-key-abc',
     providers: ['gemini-flash'],
     maxLatencyMs: 12345
@@ -137,7 +137,7 @@ test('ask() posts the documented request shape', async () => {
     const call = stub.calls[0];
 
     // Endpoint joined with /v1/consensus and trailing slash collapsed.
-    assert.equal(call.url, 'https://quorum-ai.dev/v1/consensus');
+    assert.equal(call.url, 'https://api.quorum-ai.dev/v1/consensus');
 
     // Method + headers.
     assert.equal(call.init.method, 'POST');
@@ -164,7 +164,7 @@ test('ask() posts the documented request shape', async () => {
 
 test('ask() omits X-Quorum-API-Key when apiKey is empty', async () => {
   fakeConfig = {
-    endpoint: 'https://quorum-ai.dev',
+    endpoint: 'https://api.quorum-ai.dev',
     apiKey: '',
     providers: [],
     maxLatencyMs: 1000
@@ -185,7 +185,7 @@ test('ask() omits X-Quorum-API-Key when apiKey is empty', async () => {
 });
 
 test('ask() maps 401 to friendly QuorumError', async () => {
-  fakeConfig = { endpoint: 'https://quorum-ai.dev', apiKey: 'bad', providers: [], maxLatencyMs: 1000 };
+  fakeConfig = { endpoint: 'https://api.quorum-ai.dev', apiKey: 'bad', providers: [], maxLatencyMs: 1000 };
   __setFetchForTests(async () => textResponse('unauthorized', 401));
 
   try {
@@ -204,7 +204,7 @@ test('ask() maps 401 to friendly QuorumError', async () => {
 });
 
 test('ask() maps 429 to rate-limit message', async () => {
-  fakeConfig = { endpoint: 'https://quorum-ai.dev', apiKey: 'k', providers: [], maxLatencyMs: 1000 };
+  fakeConfig = { endpoint: 'https://api.quorum-ai.dev', apiKey: 'k', providers: [], maxLatencyMs: 1000 };
   __setFetchForTests(async () => textResponse('slow down', 429));
 
   try {
@@ -222,7 +222,7 @@ test('ask() maps 429 to rate-limit message', async () => {
 });
 
 test('ask() maps 5xx to server error message', async () => {
-  fakeConfig = { endpoint: 'https://quorum-ai.dev', apiKey: 'k', providers: [], maxLatencyMs: 1000 };
+  fakeConfig = { endpoint: 'https://api.quorum-ai.dev', apiKey: 'k', providers: [], maxLatencyMs: 1000 };
   __setFetchForTests(async () => textResponse('boom', 503));
 
   try {
@@ -240,11 +240,11 @@ test('ask() maps 5xx to server error message', async () => {
 });
 
 test('ask() retries against FALLBACK_URL on ENOTFOUND', async () => {
-  fakeConfig = { endpoint: 'https://quorum-ai.dev', apiKey: 'k', providers: [], maxLatencyMs: 1000 };
+  fakeConfig = { endpoint: 'https://api.quorum-ai.dev', apiKey: 'k', providers: [], maxLatencyMs: 1000 };
 
   const stub = makeFetchStub((req) => {
-    if (req.url.startsWith('https://quorum-ai.dev')) {
-      const err = new Error('getaddrinfo ENOTFOUND quorum-ai.dev') as Error & { code?: string };
+    if (req.url.startsWith('https://api.quorum-ai.dev')) {
+      const err = new Error('getaddrinfo ENOTFOUND api.quorum-ai.dev') as Error & { code?: string };
       err.code = 'ENOTFOUND';
       throw err;
     }

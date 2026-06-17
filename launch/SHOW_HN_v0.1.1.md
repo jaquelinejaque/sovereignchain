@@ -1,3 +1,9 @@
+> **DEPRECATED (2026-06-17).** This is the v0.1.1 draft. Use
+> [`SHOW_HN_FINAL.md`](./SHOW_HN_FINAL.md) for the current copy — it has
+> the right Cloud Run region (europe-west1, not -west2), the corrected
+> version string, and the correct API host (`api.quorum-ai.dev`, not the
+> root). Kept on disk for audit/history only.
+
 Show HN: Quorum – multi-LLM consensus engine, Pro £49/mo for solo devs
 
 Two days ago I ran Quorum against its own source. The thing I built to catch what unit tests miss caught two things my unit tests missed: a deprecated Gemini embedding endpoint that was about to start 404-ing, and a stale `__version__` string still pinned to 0.0.1 while the package shipped as 0.1.0. Both fixed in under thirty seconds once the divergence report surfaced them. That run is the reason this post exists.

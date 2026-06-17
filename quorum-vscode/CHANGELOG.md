@@ -4,6 +4,20 @@ All notable changes to the **Quorum** VS Code extension are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-06-17
+
+### Fixed
+- Status-bar default endpoint now points to `https://api.quorum-ai.dev`
+  (was the bare `quorum-ai.dev` root, which serves the marketing landing
+  page and 404s on `/v1/*`). `QuorumClient` already used the correct host;
+  only the status-bar tooltip showed the stale URL when the user had not
+  overridden `quorum.endpoint` in settings.
+
+### Internal
+- Test mocks in `quorumClient.test.ts` realigned to `api.quorum-ai.dev` so
+  the captured request URLs match what the client actually emits.
+- `.vscodeignore` now excludes `out-test/**` from the published `.vsix`.
+
 ## [0.1.0] — 2026-06-16
 
 ### Added

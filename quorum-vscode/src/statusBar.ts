@@ -61,7 +61,7 @@ export class QuorumStatusBar {
   private render(): void {
     const endpoint = vscode.workspace
       .getConfiguration(CONFIG_NS)
-      .get<string>('endpoint', 'https://quorum-ai.dev');
+      .get<string>('endpoint', 'https://api.quorum-ai.dev');
 
     switch (this.state.kind) {
       case 'busy':

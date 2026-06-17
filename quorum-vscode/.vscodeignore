@@ -2,6 +2,7 @@
 .vscode-test/**
 src/**
 node_modules/**
+out-test/**
 *.ts
 !dist/**/*.js
 esbuild.js

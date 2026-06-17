@@ -2,7 +2,7 @@
   "name": "quorum-vscode",
   "displayName": "Quorum — Multi-LLM Consensus",
   "description": "Run consensus queries across 8+ LLMs (Claude, GPT, Gemini, Llama, DeepSeek, Mistral, Qwen, Phi) directly from VS Code. Semantic agreement scoring. BYOK.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "sovereignchain",
   "license": "Apache-2.0",
   "homepage": "https://github.com/jaquelinejaque/sovereignchain",
@@ -122,7 +122,7 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.js --production",
     "watch": "node esbuild.js --watch",
-    "package": "vsce package --out quorum-vscode-0.1.0.vsix"
+    "package": "vsce package --out quorum-vscode-0.1.1.vsix"
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0",
