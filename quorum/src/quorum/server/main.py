@@ -437,7 +437,20 @@ class AppState:
         ab_store: Optional[ABTestStore] = None,
         cert_dir: Optional[Path] = None,
     ) -> None:
-        self.api_key_store = api_key_store or APIKeyStore()
+        if api_key_store is not None:
+            self.api_key_store = api_key_store
+        else:
+            # Persistent Firestore store survives Cloud Run revision rollouts.
+            # Flip QUORUM_USE_FIRESTORE=1 in prod to swap the ephemeral SQLite
+            # /tmp store for the Firestore-backed one. Default stays SQLite so
+            # self-host + tests don't gain a Firestore dependency.
+            from quorum.firestore_stores import use_firestore
+            if use_firestore():
+                from quorum.firestore_stores import FirestoreAPIKeyStore
+                self.api_key_store = FirestoreAPIKeyStore()
+                logger.info("APIKeyStore backend: Firestore")
+            else:
+                self.api_key_store = APIKeyStore()
         self.billing = billing or BillingClient()
         self.rlhf = rlhf or RLHFTracker()
         # ABTestStore tracks prompt-template A/B verdicts. Initialized eagerly

@@ -200,8 +200,21 @@ class CustomerKeyStore:
 _default: Optional[CustomerKeyStore] = None
 
 
-def default_store() -> CustomerKeyStore:
+def default_store():
+    """Return the singleton store. Uses Firestore in hosted prod (set
+    QUORUM_USE_FIRESTORE=1) so customer-registered keys survive Cloud Run
+    revision rollouts; falls back to local SQLite for self-host / dev."""
     global _default
     if _default is None:
+        try:
+            from quorum.firestore_stores import use_firestore, FirestoreCustomerKeyStore
+            if use_firestore():
+                _default = FirestoreCustomerKeyStore()
+                logger.info("CustomerKeyStore backend: Firestore")
+                return _default
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "Firestore backend unavailable (%s); falling back to SQLite", e,
+            )
         _default = CustomerKeyStore()
     return _default
