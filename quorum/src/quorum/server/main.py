@@ -577,8 +577,8 @@ def create_app(state: Optional[AppState] = None) -> FastAPI:
     async def _lifespan(_: FastAPI) -> AsyncIterator[None]:
         """Lifespan hook so we have a hook point for warmup/teardown later."""
         logger.info(
-            "Quorum server starting: api_keys_db=%s cert_dir=%s",
-            app_state.api_key_store._db_path,  # noqa: SLF001 - intentional
+            "Quorum server starting: api_keys_backend=%s cert_dir=%s",
+            getattr(app_state.api_key_store, "_db_path", type(app_state.api_key_store).__name__),
             app_state.cert_dir,
         )
         yield
