@@ -841,6 +841,13 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
         state = _get_state(request)
 
         # Apply tier-scoped rate limit if slowapi is wired up.
+        # Wrapped in a broad except because slowapi's programmatic limit()
+        # API has been moving — newer versions require an explicit
+        # `response` parameter that breaks the legacy call site. We catch
+        # everything that isn't RateLimitExceeded and degrade open (logged)
+        # so a slowapi upgrade can't take the entire /v1/consensus endpoint
+        # down for paying customers. The Stripe-quota enforcement below is
+        # the real billing gate; rate-limit-per-second is a soft DoS guard.
         if _SLOWAPI_AVAILABLE and hasattr(app.state, "limiter"):
             limit_string = _dynamic_limit_for_request(request)
             try:
@@ -852,6 +859,11 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
                     status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                     detail=f"rate limit exceeded ({limit_string})",
                 ) from exc
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "slowapi limiter call failed (%s) — degrading open; quota gate still enforced below",
+                    exc,
+                )
 
         # Customer resolution — the API key's user_id is the canonical
         # billing identity; the optional ``user_id`` in the body is for
@@ -1113,6 +1125,24 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
                 plaintext, _record = await state.api_key_store.issue(
                     user_id=result.customer_email, tier=result.tier,
                 )
+                # Bridge the customer_id ↔ email gap: the webhook updated
+                # the tier under the Stripe customer_id, but check_quota()
+                # looks it up by api_record.user_id (= email). Without this
+                # alias, the paying customer would see tier=free in
+                # /v1/usage despite an active subscription. We write a
+                # parallel customers row keyed by email so the hot path
+                # resolves to the right tier.
+                try:
+                    state.billing._set_tier_local(  # noqa: SLF001 — see comment above
+                        result.customer_email,
+                        result.tier,
+                        subscription_id=None,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "could not alias tier under email %s — /v1/usage may show free",
+                        result.customer_email,
+                    )
                 from quorum.billing.email_sender import send_welcome_email
                 emailed = await send_welcome_email(
                     to=result.customer_email,
