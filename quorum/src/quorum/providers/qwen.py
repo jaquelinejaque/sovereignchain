@@ -35,10 +35,13 @@ _ENDPOINTS = {
 # Per-million-token pricing in USD. Conservative defaults — refine when
 # Alibaba publishes 3.7 Max sheet officially.
 _PRICING: dict[str, tuple[float, float]] = {
+    "qwen3.7-max": (1.20, 6.00),
+    "qwen3.7-plus": (0.40, 1.20),
     "qwen3-max": (1.20, 6.00),
     "qwen-max": (1.20, 6.00),
     "qwen-plus": (0.40, 1.20),
     "qwen-turbo": (0.05, 0.20),
+    "qwen3-coder-plus": (1.20, 6.00),
 }
 
 
@@ -59,8 +62,16 @@ class QwenProvider(Provider):
             or ""
         )
         self.thinking_enabled = thinking_enabled
-        region = os.getenv("DASHSCOPE_REGION", "intl").lower()
-        self.endpoint = _ENDPOINTS.get(region, _ENDPOINTS["intl"])
+        # DASHSCOPE_BASE_URL takes precedence — lets workspace-dedicated
+        # MaaS deployments (Alibaba PAI custom endpoints) be used in place
+        # of the global DashScope service. Append `/chat/completions` to the
+        # base, since MaaS endpoints expose the OpenAI-compat root.
+        base_url = os.getenv("DASHSCOPE_BASE_URL", "").rstrip("/")
+        if base_url:
+            self.endpoint = f"{base_url}/chat/completions"
+        else:
+            region = os.getenv("DASHSCOPE_REGION", "intl").lower()
+            self.endpoint = _ENDPOINTS.get(region, _ENDPOINTS["intl"])
         self.name = f"qwen-{model}"
 
     async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
@@ -110,6 +121,19 @@ class QwenProvider(Provider):
 
 def qwen3_max() -> QwenProvider:
     return QwenProvider(model="qwen3-max")
+
+
+def qwen3_7_max() -> QwenProvider:
+    """Qwen 3.7 Max — agentic coding leader (SWE-Pro 60.6%). Available in PAI MaaS workspaces."""
+    return QwenProvider(model="qwen3.7-max")
+
+
+def qwen3_7_plus() -> QwenProvider:
+    return QwenProvider(model="qwen3.7-plus")
+
+
+def qwen3_coder_plus() -> QwenProvider:
+    return QwenProvider(model="qwen3-coder-plus")
 
 
 def qwen_max() -> QwenProvider:

@@ -90,7 +90,9 @@ def load_default_providers() -> list[Provider]:
 
     if os.getenv("DASHSCOPE_API_KEY") or os.getenv("QWEN_API_KEY"):
         from quorum.providers import qwen as qw
+        providers.append(qw.qwen3_7_max())  # 2026-06 release; PAI MaaS workspaces
         providers.append(qw.qwen3_max())
+        providers.append(qw.qwen3_coder_plus())
         providers.append(qw.qwen_plus())
 
     # Always try local Ollama (free, runs on user's Mac) — best effort
