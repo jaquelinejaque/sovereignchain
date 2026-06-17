@@ -21,6 +21,17 @@ result = await consensus("What is the chemical structure of L-Cysteine?")
 > **Pro tier: £49/mo** — solo devs, BYOK, all 13 evolution loops, 5,000 queries/mo, £0.012 overage.
 > Start in 30 seconds at https://quorum-ai.dev.
 
+## Recommended usage pattern — context profiles
+
+Before asking Quorum anything substantial, create a context profile for the project or domain you're working in. The profile is auto-injected into every consensus query so all the LLMs start from the same ground truth instead of falling back to training-data priors.
+
+```bash
+quorum context add my-project --file README.md   # one-time setup
+quorum ask --all "what should I prioritize next?"  # context auto-injects, web is live by default
+```
+
+Full guide: [docs/CONTEXT_PROFILES.md](docs/CONTEXT_PROFILES.md) (also documents the failure mode this prevents — same idea as Claude Projects / Cursor `.cursorrules` / ChatGPT Custom Instructions, applied to multi-LLM consensus).
+
 ## What makes Quorum different
 
 - **8+ models in parallel by default**: Claude, GPT, Gemini, Grok, Llama (local), Llama 3.3, Mistral, DeepSeek, Qwen, Phi
