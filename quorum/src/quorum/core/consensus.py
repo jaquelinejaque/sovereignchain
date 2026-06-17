@@ -180,8 +180,15 @@ async def _score_semantic(
         # Truncate each response before embedding to bound cost/latency
         # against an adversarial provider that returns a megabyte of text.
         texts = [r.response[:MAX_RESPONSE_BYTES] for r in valid]
-        confidence, weights = await semantic_agreement(texts, embedder)
-        pairs = await extract_disagreement_pairs(texts, embedder)
+        try:
+            confidence, weights = await semantic_agreement(texts, embedder)
+            pairs = await extract_disagreement_pairs(texts, embedder)
+        except Exception as e:  # noqa: BLE001
+            # Embedder backends can fail mid-call (HTTP 429 quota, 5xx, network).
+            # Without this guard the entire consensus crashes; fall back to
+            # Jaccard so the caller still gets a usable answer.
+            logger.warning("embedding call failed (%s); falling back to Jaccard", e)
+            return _jaccard_fallback(valid)
     finally:
         await embedder.aclose()
     return confidence, weights, pairs

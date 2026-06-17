@@ -1,0 +1,242 @@
+Gemini embed failed: {
+  "error": {
+    "code": 429,
+    "message": "You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \n* Quota ex
+embedding call failed (Client error '429 Too Many Requests' for url 'https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:batchEmbedContents?key=AQ.REDACTED'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429); falling back to Jaccard
+{
+  "answer": "**SINGLE highest-leverage action for the next 7 days:**\n\nThe single highest-leverage action for the next 7 days is to **launch the LinkedIn post**. This action has the potential to drive significant traffic to the Quorum website, increase visibility, and attract potential users and partners. Given the existing 22 downloads and 0 confirmed installs, a well-crafted LinkedIn post can help create buzz around the project and encourage people to try out Quorum.\n\n**SINGLE biggest existential risk:**\n\nThe single biggest existential risk for Quorum is **lack of traction and user adoption**. With 0 paying users, 0 GitHub stars, and only 22 downloads, the project is struggling to gain momentum. If Quorum fails to attract users and partners, it may not be able to sustain itself financially, and the project may eventually die out. This risk is exacerbated by the fact that the founder is a solo individual with a significant academic deadline to meet (HSO6001).",
+  "confidence": 0.13376757743486906,
+  "embedding_confidence": 0.13376757743486906,
+  "models": [
+    {
+      "name": "gemini-flash",
+      "response": "",
+      "latency_ms": 497.5,
+      "cost_usd": 0.0,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "weight": 0.0,
+      "error": "http_429: {\n  \"error\": {\n    \"code\": 429,\n    \"message\": \"You exceeded your current quota, please check your plan and billing deta"
+    },
+    {
+      "name": "llama-3.3-70b",
+      "response": "",
+      "latency_ms": 563.0,
+      "cost_usd": 0.0,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "weight": 0.0,
+      "error": "http_429: {\"detail\":\"Request was throttled. Your rate limit for creating predictions is reduced to 6 requests per minute with a burst of 1 requests while you have less th"
+    },
+    {
+      "name": "deepseek-v3",
+      "response": "",
+      "latency_ms": 241.5,
+      "cost_usd": 0.0,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "weight": 0.0,
+      "error": "http_402: {\"title\":\"Insufficient credit\",\"detail\":\"You have insufficient credit to run this model. Go to https://replicate.com/account/billing#billing to purchase credit."
+    },
+    {
+      "name": "nvidia-llama-3.2-3b-instruct",
+      "response": "Here's a brutally honest assessment:\n\n**SINGLE HIGHEST-LEVERAGE ACTION FOR THE NEXT 7 DAYS:**\nTo increase visibility and drive adoption, Quorum should focus on building a strong online presence by creating engaging content and leveraging social media platforms. Specifically, the founder should prioritize creating a compelling LinkedIn launch post, crafting a Twitter post that highlights the unique value proposition of Quorum, and verifying the domain to establish credibility. This will help attract potential users, paying customers, and partners, which is crucial for the project's survival and growth.\n\n**SINGLE BIGGEST EXISTENTIAL RISK:**\nThe biggest existential risk for Quorum is its lack of traction and revenue. With only 22 downloads and 0 confirmed installs in the VS Code extension marketplace, and no paying users, the project is at risk of being abandoned or going out of business. The fact that the founder is a solo operator with limited resources and a pressing academic deadline adds to the pressure. If Quorum fails to gain significant traction and revenue within the next few months, it may become a relic of a failed experiment, and the founder's reputation and career may suffer as a result.",
+      "latency_ms": 2735.4,
+      "cost_usd": 0.0,
+      "tokens_in": 244,
+      "tokens_out": 236,
+      "weight": 0.0972,
+      "error": ""
+    },
+    {
+      "name": "nvidia-llama-3.1-8b-instruct",
+      "response": "**SINGLE highest-leverage action for the next 7 days:**\n\nThe single highest-leverage action for the next 7 days is to **launch the LinkedIn post**. This action has the potential to drive significant traffic to the Quorum website, increase visibility, and attract potential users and partners. Given the existing 22 downloads and 0 confirmed installs, a well-crafted LinkedIn post can help create buzz around the project and encourage people to try out Quorum.\n\n**SINGLE biggest existential risk:**\n\nThe single biggest existential risk for Quorum is **lack of traction and user adoption**. With 0 paying users, 0 GitHub stars, and only 22 downloads, the project is struggling to gain momentum. If Quorum fails to attract users and partners, it may not be able to sustain itself financially, and the project may eventually die out. This risk is exacerbated by the fact that the founder is a solo individual with a significant academic deadline to meet (HSO6001).",
+      "latency_ms": 1700.6,
+      "cost_usd": 0.0,
+      "tokens_in": 244,
+      "tokens_out": 202,
+      "weight": 0.1035,
+      "error": ""
+    },
+    {
+      "name": "nvidia-llama-4-maverick-17b-128e-instruct",
+      "response": "Here is a brutally honest assessment:\n\nThe single highest-leverage action for the next 7 days is to create and publish a compelling LinkedIn post and Twitter post to drive visibility, downloads, and installs for the Quorum VS Code extension, as well as to attract potential paying users. The single biggest existential risk is that the project fails to gain traction and remains with 0 paying users, making it unsustainable for the solo founder to continue investing time and resources, ultimately leading to abandonment or stagnation, especially with a looming academic deadline (HSO6001) in 2 years that may demand significant additional effort.",
+      "latency_ms": 2206.6,
+      "cost_usd": 0.0,
+      "tokens_in": 215,
+      "tokens_out": 126,
+      "weight": 0.0928,
+      "error": ""
+    },
+    {
+      "name": "nvidia-deepseek-v4-flash",
+      "response": "**Highest-leverage action:** Ship a single, brutally simple demo video (under 2 minutes) showing Quorum catching a clear hallucination or contradiction between two models (e.g., Gemini vs. Qwen) on a factual query, then post it directly to a niche AI reliability community (e.g., r/LocalLLaMA or Hacker News “Show HN”) with a link to the live VS Code extension—this converts your 22 downloads into a tangible proof-of-value story, not a feature list.\n\n**Biggest existential risk:** **Zero social proof + zero paying users = death spiral.** With 0 GitHub stars, 0 confirmed installs, and 0 revenue, your patent and 144 models are invisible assets. The market interprets “0 stars” as “no one trusts this enough to even click a button,” and your £49/mo Pro tier will remain a ghost until you get even one public testimonial or a single user’s “it caught a bug” tweet. Without that, every future launch post will echo into silence.",
+      "latency_ms": 3291.6,
+      "cost_usd": 0.0,
+      "tokens_in": 214,
+      "tokens_out": 217,
+      "weight": 0.0634,
+      "error": ""
+    },
+    {
+      "name": "nvidia-dracarys-llama-3.1-70b-instruct",
+      "response": "",
+      "latency_ms": 30007.3,
+      "cost_usd": 0.0,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "weight": 0.0,
+      "error": "timeout"
+    },
+    {
+      "name": "nvidia-llama-3.3-70b-instruct",
+      "response": "",
+      "latency_ms": 30002.0,
+      "cost_usd": 0.0,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "weight": 0.0,
+      "error": "timeout"
+    },
+    {
+      "name": "mistral-mistral-large-latest",
+      "response": "**Highest-leverage action for the next 7 days:**\n**Launch the LinkedIn/Twitter posts + domain verification in a single, high-signal thread**—not just as announcements, but as a *narrative-driven case study* (e.g., \"How we built a multi-LLM consensus engine with 144 models, 0 stars, and 22 downloads—and why we’re publishing our loop scorecard\"). Frame it as a \"transparency experiment\" (leveraging your brand’s \"honest disclosure\" angle) to attract early adopters who value accountability over hype. Include a clear CTA (e.g., \"Try the VS Code extension—free tier, no credit card, 100% open-source backend\") and tag 5–10 target users (e.g., LLM researchers, indie devs, or teams evaluating model ensembles). This is your best shot at converting the 22 downloads into *confirmed installs* and sparking organic growth before the HSO6001 deadline distracts you.\n\n**Biggest existential risk:**\n**The patent (PCT/US26/11908) could become a legal or reputational liability if competitors or open-source purists perceive it as \"patent trolling\" or an attempt to lock down multi-LLM consensus.** Even if your intent is defensive, the optics of a solo founder patenting a core part of an Apache 2.0 project—while having 0 stars and 0 paying users—could deter contributors, scare off potential users, or invite backlash (e.g., \"Why patent this if you’re open-source?\"). Mitigate this *immediately* by:\n1. **Adding a patent pledge** to your GitHub README (e.g., \"Non-assertion promise: We will not enforce this patent against open-source implementations of multi-LLM consensus\").\n2. **Proactively addressing it in your LinkedIn/Twitter launch** (e.g., \"Why we filed a patent—and why we’re committing to never use it against open-source\").\n3. **Engaging with 1–2 open-source legal experts** (e.g., via OSI or LF) to review your approach and suggest language to preempt criticism.\n\n*Why this matters more than downloads or bugs:* Trust is your only moat right now, and a patent misstep could poison it before you even get traction.",
+      "latency_ms": 10163.3,
+      "cost_usd": 0.0035,
+      "tokens_in": 238,
+      "tokens_out": 504,
+      "weight": 0.0634,
+      "error": ""
+    },
+    {
+      "name": "mistral-codestral-latest",
+      "response": "**Single Highest-Leverage Action for Next 7 Days:**\n**Validate demand with a targeted beta test (50 users) using a free tier + referral incentives.** The 22 Marketplace downloads suggest interest but no confirmed installs—this action would prove usability, gather feedback, and signal credibility to investors/partners. Focus on the 144-model ecosystem (Anthropic, OpenAI, etc.) to highlight differentiation.\n\n**Single Biggest Existential Risk:**\n**Lack of traction → founder burnout → project abandonment.** The 0 stars, 0 paying users, and solo founder status create a high-risk scenario. Without validated demand, the £49/mo Pro tier and patent (PCT/US26/11908) may fail to attract users or investors. The 12-Jul-2026 HSO6001 deadline adds pressure without a clear path to revenue or adoption.\n\n**Key:** Beta test + social proof (LinkedIn/Twitter) within 7 days to pivot or fail fast.",
+      "latency_ms": 1509.5,
+      "cost_usd": 0.000269,
+      "tokens_in": 238,
+      "tokens_out": 220,
+      "weight": 0.0817,
+      "error": ""
+    },
+    {
+      "name": "mistral-mistral-small-latest",
+      "response": "**Highest-leverage action (next 7 days):**\nLaunch a **targeted LinkedIn/Twitter campaign** (even with 0 followers) targeting **AI researchers, indie hackers, and open-source devs** with a **short, data-driven demo** (e.g., \"Here’s how Quorum’s multi-LLM consensus reduces hallucinations by X% vs. single-model setups\")—prioritize **providers with free tiers** (Mistral, Cohere) to lower friction. Pair this with a **GitHub \"star for a free month\" incentive** (e.g., \"Star the repo, DM me, get 30 days Pro\").\n\n**Biggest existential risk:**\n**Zero adoption momentum**—the product is technically sound but invisible. Without **even 1 paying user or 100 GitHub stars** in the next 30 days, the **PCT patent (PCT/US26/11908)** becomes a sunk cost with no defensible moat, and the **solo founder’s runway** (assuming no revenue) will collapse before the **HSO6001 academic deadline (12-jul-2026)**. Fix this by **forcing virality** (e.g., \"Consensus Challenge\": \"Use Quorum to answer this prompt, share your results, and I’ll feature the best 3\").",
+      "latency_ms": 2554.7,
+      "cost_usd": 0.000228,
+      "tokens_in": 250,
+      "tokens_out": 296,
+      "weight": 0.0647,
+      "error": ""
+    },
+    {
+      "name": "cohere-command-r-plus-08-2024",
+      "response": "",
+      "latency_ms": 30008.7,
+      "cost_usd": 0.0,
+      "tokens_in": 0,
+      "tokens_out": 0,
+      "weight": 0.0,
+      "error": "timeout"
+    },
+    {
+      "name": "cohere-command-r-08-2024",
+      "response": "The highest-leverage action for the next 7 days is to focus on marketing and generating awareness. With only a handful of downloads and installs, Quorum needs to attract attention and showcase its unique value proposition. A well-crafted launch strategy, targeting specific communities and developers, could help gain traction and early adopters. \n\nThe biggest existential risk is the lack of user adoption and engagement. Without a solid user base and feedback loop, the project may struggle to iterate and improve, leading to a potential loss of interest and funding. The current low visibility and absence of a strong user community pose a significant threat to the long-term viability of Quorum.",
+      "latency_ms": 2626.0,
+      "cost_usd": 0.000113,
+      "tokens_in": 225,
+      "tokens_out": 132,
+      "weight": 0.075,
+      "error": ""
+    },
+    {
+      "name": "cohere-command-a-03-2025",
+      "response": "**Highest-Leverage Action for the Next 7 Days:**  \nThe single highest-leverage action is to **secure at least one confirmed install and positive user feedback** for the VS Code extension by directly reaching out to potential early adopters (e.g., developers, AI researchers, or open-source enthusiasts) via targeted LinkedIn messages, Twitter DMs, or relevant Discord/Slack communities. This will validate product-market fit, generate social proof, and potentially unlock organic growth.\n\n**Single Biggest Existential Risk:**  \nThe single biggest existential risk is **failing to acquire paying users within the next 3 months**, as the current £49/mo Pro tier pricing model is unproven, and without revenue, the project risks running out of runway before achieving sustainability, especially as a solo founder with limited resources.",
+      "latency_ms": 3196.1,
+      "cost_usd": 0.002263,
+      "tokens_in": 225,
+      "tokens_out": 170,
+      "weight": 0.0857,
+      "error": ""
+    },
+    {
+      "name": "qwen-qwen3.7-max",
+      "response": "Quorum is currently a technically impressive but commercially invisible solution, as 22 downloads and zero stars indicate you have built a complex multi-LLM consensus engine for a market that has not yet validated the problem or the price point. The £49/mo Pro tier is premature given zero paying users, and the pending patent offers no protection against the real threat of total obscurity in a saturated AI tooling landscape. Your \"honest disclosure\" branding is a strong differentiator, but it cannot compensate for a complete lack of distribution or social proof before your academic deadline.\n\n**Single Highest-Leverage Action (Next 7 Days):** Execute the LinkedIn launch post immediately with a direct call-to-action offering free Pro tier access to 10-20 specific AI engineers/researchers in exchange for public feedback and GitHub stars, prioritizing visible validation signals over revenue or domain verification.\n\n**Single Biggest Existential Risk:** Reaching the July 2026 HSO6001 deadline with zero external adoption or community traction, rendering the patent and technical complexity academically and commercially irrelevant due to a total failure to achieve product-market fit.",
+      "latency_ms": 5599.0,
+      "cost_usd": 0.001687,
+      "tokens_in": 236,
+      "tokens_out": 234,
+      "weight": 0.0571,
+      "error": ""
+    },
+    {
+      "name": "qwen-qwen3-max",
+      "response": "**Highest-leverage action:** Immediately publish a brutally transparent, data-driven case study (even if based on internal testing) showing *exactly* how Quorum’s multi-LLM consensus improves real-world outcomes over single LLMs—then personally share it with 10–20 targeted developers or researchers who’ve publicly struggled with LLM inconsistency, bypassing generic social posts.  \n\n**Biggest existential risk:** Building in near-total obscurity while burning time/money on undifferentiated features (like adding more providers) without validating whether the core consensus value proposition actually solves a painful, urgent problem for *anyone willing to pay*. Zero stars, installs, or users after multiple releases signals a potential \"solution in search of a problem\"—not a technical failure, but a market-fit crisis.",
+      "latency_ms": 5907.1,
+      "cost_usd": 0.00125,
+      "tokens_in": 232,
+      "tokens_out": 162,
+      "weight": 0.0388,
+      "error": ""
+    },
+    {
+      "name": "qwen-qwen3-coder-plus",
+      "response": "**Assessment:** Quorum appears to be a technically ambitious but commercially unproven project with significant execution gaps—zero user adoption despite a functional product, no marketing presence, and a single-founder operation carrying substantial technical debt (144 models across 26 providers suggests scope creep). The patent filing and academic deadline suggest research-driven rather than market-driven development, while the £49/month pricing seems disconnected from a product with zero paying customers.\n\n**Highest-leverage action:** Drop everything and spend the next 7 days talking to 20 potential customers daily to validate whether anyone besides you thinks multi-LLM consensus is worth paying for—because your entire business model assumes this problem exists for real users.\n\n**Biggest existential risk:** You're building an increasingly complex technical solution to a problem that may not exist in the market, while burning through development time on feature additions (Chinese providers, more models) instead of proving basic product-market fit—your 0% conversion rate suggests you're optimizing the wrong things.",
+      "latency_ms": 6948.9,
+      "cost_usd": 0.001508,
+      "tokens_in": 232,
+      "tokens_out": 205,
+      "weight": 0.048,
+      "error": ""
+    },
+    {
+      "name": "qwen-qwen-plus",
+      "response": "The single highest-leverage action for the next 7 days is **shipping a *verified, public, real-world use case*—ideally a short video demo (≤90 sec) showing Quorum resolving an ambiguous, high-stakes LLM disagreement (e.g., “Is this medical advice safe?” or “Does this contract clause create liability?”) with clear before/after consensus, loop scorecard, and *actual user attribution* (e.g., “Used by [real dev/researcher name] at [org] to cut hallucination risk by X%”).** No marketing fluff—just raw, reproducible evidence of *why consensus matters when models disagree*, published natively on Twitter/X, LinkedIn, and the VS Code Marketplace page.\n\nThe single biggest existential risk is **the complete absence of *any verified user signal*—zero stars, zero installs, zero paying users, zero public testimonials—despite 26 providers and 144 models. This isn’t early-stage ambiguity; it’s empirical silence suggesting either (a) the problem Quorum solves isn’t felt acutely enough by developers yet, or (b) the UX/abstraction is still too opaque or untrustworthy to cross the “first install” threshold. Without *one* confirmed, attributable human saying “I shipped this and it worked,” the patent, providers, and pricing are irrelevant noise—and the academic deadline (2026) becomes a countdown to irrelevance, not validation.",
+      "latency_ms": 6267.5,
+      "cost_usd": 0.000458,
+      "tokens_in": 232,
+      "tokens_out": 304,
+      "weight": 0.0471,
+      "error": ""
+    },
+    {
+      "name": "llama-local",
+      "response": "**SINGLE Highest-Leverage Action (Next 7 Days):**\nThe single highest-leverage action for Quorum's next 7 days is to prioritize and execute on the already-pending LinkedIn launch post. This involves creating high-quality content that showcases Quorum's features, highlighting its unique selling points, and emphasizing the benefits of using an open-source multi-LLM consensus engine. By focusing on this single action, the founder can generate buzz, attract potential users, and increase visibility for Quorum, ultimately driving more paying users and revenue growth.\n\n**SINGLE Biggest Existential Risk:**\nThe single biggest existential risk facing Quorum is the patent mentioned in version 0.1.5 (PCT/US26/11908). If this patent is not properly secured or if Quorum fails to defend it, it may be vulnerable to patent infringement claims from other companies, including its LLM provider partners. This could lead to costly lawsuits, damage to the company's reputation, and potentially even the loss of revenue streams. To mitigate this risk, Quorum should prioritize securing or defending this patent as soon as possible.",
+      "latency_ms": 6478.5,
+      "cost_usd": 0.0,
+      "tokens_in": 234,
+      "tokens_out": 227,
+      "weight": 0.0817,
+      "error": ""
+    }
+  ],
+  "disagreements": [
+    "nvidia-deepseek-v4-flash",
+    "mistral-mistral-large-latest",
+    "cohere-command-r-08-2024",
+    "nvidia-llama-4-maverick-17b-128e-instruct",
+    "nvidia-llama-3.1-8b-instruct",
+    "mistral-codestral-latest",
+    "cohere-command-a-03-2025",
+    "nvidia-llama-3.2-3b-instruct",
+    "qwen-qwen3-max",
+    "mistral-mistral-small-latest",
+    "qwen-qwen-plus",
+    "qwen-qwen3.7-max",
+    "qwen-qwen3-coder-plus",
+    "llama-local"
+  ],
+  "evolution_signals": {
+    "router": false,
+    "rlhf": false,
+    "hebbian": true,
+    "memory": false,
+    "competition": true,
+    "self_prompt": false
+  },
+  "total_cost_usd": 0.011276,
+  "total_latency_ms": 33092.7,
+  "router_used": [],
+  "hebbian_boost_applied": 1.2748,
+  "rlhf_weights_applied": {}
+}
