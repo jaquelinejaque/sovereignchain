@@ -1534,6 +1534,110 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
         response["emailed"] = emailed
         return response
 
+    # ---------- GitHub webhook (push event → audit diff) ---------------------
+
+    @app.post("/v1/webhooks/github", tags=["webhooks"])
+    async def github_webhook(
+        request: Request,
+        x_hub_signature_256: Optional[str] = Header(default=None, alias="X-Hub-Signature-256"),
+        x_github_event: Optional[str] = Header(default=None, alias="X-GitHub-Event"),
+    ) -> dict[str, Any]:
+        """Receive GitHub events (push, pull_request) for audit/improvement loop.
+
+        Verifies HMAC SHA-256 signature against GITHUB_WEBHOOK_SECRET env var.
+        Without the secret configured, the endpoint refuses ALL requests
+        (fail-closed) — matches the HSP gate posture.
+
+        Currently logs the event + repo + commits. Future iterations will
+        dispatch a Quorum audit of the diff and surface findings.
+        """
+        import hmac as _hmac
+        import hashlib as _hashlib
+        import json as _json
+
+        secret = os.getenv("GITHUB_WEBHOOK_SECRET", "")
+        if not secret:
+            raise HTTPException(
+                status_code=503,
+                detail="GitHub webhook receiver not configured (set GITHUB_WEBHOOK_SECRET)",
+            )
+
+        payload = await request.body()
+        expected = "sha256=" + _hmac.new(
+            secret.encode(), payload, _hashlib.sha256
+        ).hexdigest()
+        if not x_hub_signature_256 or not _hmac.compare_digest(
+            expected, x_hub_signature_256
+        ):
+            raise HTTPException(status_code=401, detail="invalid signature")
+
+        try:
+            evt = _json.loads(payload)
+        except Exception:
+            raise HTTPException(status_code=400, detail="invalid JSON")
+
+        repo = evt.get("repository", {}).get("full_name", "?")
+        commits = evt.get("commits", []) or []
+        head = evt.get("head_commit", {}) or {}
+        logger.info(
+            "github.%s repo=%s head=%s commits=%d",
+            x_github_event or "?",
+            repo,
+            head.get("id", "?")[:7],
+            len(commits),
+        )
+        # TODO(phase 2): dispatch async audit job + comment on PR
+        return {
+            "ok": True,
+            "event": x_github_event,
+            "repo": repo,
+            "head_sha": head.get("id"),
+            "commits": len(commits),
+        }
+
+    # ---------- Cron target — site improver ---------------------------------
+
+    @app.post("/v1/cron/site-improver", tags=["webhooks"])
+    async def cron_site_improver(
+        request: Request,
+        x_cloudscheduler: Optional[str] = Header(default=None, alias="X-Cloudscheduler"),
+        x_quorum_cron_secret: Optional[str] = Header(default=None, alias="X-Quorum-Cron-Secret"),
+    ) -> dict[str, Any]:
+        """Cloud Scheduler target — kicks off a Quorum-driven site audit.
+
+        Gating: requires X-Quorum-Cron-Secret header to match QUORUM_CRON_SECRET
+        env var. Cloud Scheduler can set it via its HTTP target config. Without
+        the secret configured, endpoint refuses (fail-closed).
+
+        Returns the report markdown directly (so Scheduler logs preserve it),
+        rather than writing to disk — Cloud Run filesystem is ephemeral anyway.
+        """
+        secret = os.getenv("QUORUM_CRON_SECRET", "")
+        if not secret:
+            raise HTTPException(
+                status_code=503,
+                detail="cron endpoint not configured (set QUORUM_CRON_SECRET)",
+            )
+        if not x_quorum_cron_secret or not hmac.compare_digest(
+            secret, x_quorum_cron_secret
+        ):
+            raise HTTPException(status_code=401, detail="invalid cron secret")
+
+        target_site = os.getenv("CRON_TARGET_SITE", "https://keratintreatment.co.uk")
+        pages = os.getenv("CRON_TARGET_PAGES", "/,/products,/science,/protocol").split(",")
+        logger.info("cron.site_improver site=%s pages=%d", target_site, len(pages))
+
+        # MVP: just log the trigger + return what we WOULD do. Actual fetch +
+        # Quorum query happens in the local script today. Phase 2 ports the
+        # full improver into this endpoint.
+        return {
+            "ok": True,
+            "scheduled_at": time.time(),
+            "target_site": target_site,
+            "pages_planned": [p.strip() for p in pages if p.strip()],
+            "status": "logged_only_phase_2_will_dispatch",
+        }
+
     # ---------- synthetic-data corpus stats ---------------------------------
 
     @app.get("/v1/synthetic/stats", tags=["evolution"])
