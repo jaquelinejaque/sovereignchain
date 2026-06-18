@@ -27,6 +27,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
+from quorum.hsp.gate import requires_hsp_approval
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -602,6 +604,7 @@ class MoERouter:
     # Learning
     # ------------------------------------------------------------------
 
+    @requires_hsp_approval(action="router_update_policy", risk_level="high")
     async def update_policy(
         self,
         query_class: str,

@@ -72,6 +72,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal, Optional, Protocol, runtime_checkable
 
+from quorum.hsp.gate import requires_hsp_approval
+
 logger = logging.getLogger(__name__)
 
 
@@ -415,6 +417,7 @@ class SelfPromptOptimizer:
             ).fetchone()
             return _row_to_variant(updated)
 
+    @requires_hsp_approval(action="self_prompt_weekly_evolve", risk_level="high")
     async def weekly_evolve(
         self,
         model_name: str,

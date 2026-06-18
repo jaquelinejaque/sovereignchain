@@ -62,6 +62,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Protocol, Sequence
 
+from quorum.hsp.gate import requires_hsp_approval
 from quorum.providers.base import ModelResponse, Provider
 
 logger = logging.getLogger(__name__)
@@ -615,6 +616,7 @@ class ModelCompetition:
 
     # -- RLHF application ---------------------------------------------------
 
+    @requires_hsp_approval(action="competition_apply_to_rlhf", risk_level="high")
     async def apply_to_rlhf(
         self,
         rlhf_tracker: RLHFTracker,
