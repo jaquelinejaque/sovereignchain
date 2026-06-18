@@ -31,6 +31,7 @@ export function registerAsk(
   statusBar?: QuorumStatusBar
 ): vscode.Disposable {
   return vscode.commands.registerCommand('quorum.ask', async () => {
+    if (!(await ensureKeyOrPrompt())) return;
     const prompt = await vscode.window.showInputBox({
       prompt: 'Ask Quorum...',
       placeHolder: 'e.g. "What is the safest way to store an API key in a VS Code extension?"',
@@ -172,6 +173,48 @@ export function registerOpenSettings(): vscode.Disposable {
       '@ext:sovereignchain.quorum-vscode'
     );
   });
+}
+
+/**
+ * quorum.getFreeKey — opens https://quorum-ai.dev/signup so a fresh
+ * user can pick up a free 100 q/mo API key without leaving VS Code.
+ * Pairs with the soft-warning flow in QuorumClient/ensureKeyOrPrompt
+ * that fires this same command when the user tries to call /v1/consensus
+ * with quorum.apiKey unset.
+ */
+export function registerGetFreeKey(): vscode.Disposable {
+  return vscode.commands.registerCommand('quorum.getFreeKey', async () => {
+    await vscode.env.openExternal(
+      vscode.Uri.parse('https://quorum-ai.dev/signup')
+    );
+    vscode.window.showInformationMessage(
+      'Quorum signup opened in your browser. Enter your email to get a free API key (100 queries/month), then paste it into Settings → Quorum → API Key.'
+    );
+  });
+}
+
+/**
+ * Helper: when a Quorum command is invoked but quorum.apiKey is empty,
+ * pop a friendly toast with three buttons instead of failing with the
+ * generic "Invalid API key" error from the server. Returns true if the
+ * key is set (caller should proceed), false otherwise (caller should
+ * stop).
+ */
+export async function ensureKeyOrPrompt(): Promise<boolean> {
+  const key = vscode.workspace.getConfiguration('quorum').get<string>('apiKey', '');
+  if (key && key.trim().length > 0) return true;
+  const choice = await vscode.window.showWarningMessage(
+    "No Quorum API key set. Get a free key (100 queries/month, no card) at quorum-ai.dev/signup, then paste it into Settings.",
+    'Get Free Key',
+    'Open Settings',
+    'Dismiss'
+  );
+  if (choice === 'Get Free Key') {
+    await vscode.commands.executeCommand('quorum.getFreeKey');
+  } else if (choice === 'Open Settings') {
+    await vscode.commands.executeCommand('quorum.openSettings');
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,12 +1,36 @@
 # Quorum — Multi-LLM Consensus for VS Code
 
-Quorum runs a single prompt across 8+ frontier LLMs (Claude, GPT, Gemini, Llama, DeepSeek, Mistral, Qwen, Phi) directly inside VS Code, scores the answers for semantic agreement, and surfaces exactly where the models disagree — because disagreement between strong models is the most valuable signal you can get before shipping code, taking a security call, or making a regulatory commitment. Backed by the hosted [Quorum](https://quorum-ai.dev) consensus engine; BYOK supported so your provider keys never leave your machine.
+Quorum runs a single prompt across 8+ frontier LLMs (Claude, GPT, Gemini, Llama, DeepSeek, Mistral, Qwen, Phi) directly inside VS Code, scores the answers for semantic agreement, and surfaces exactly where the models disagree — because disagreement between strong models is the most valuable signal you can get before shipping code, taking a security call, or making a regulatory commitment. Backed by the hosted [Quorum](https://quorum-ai.dev) consensus engine; BYOK — you bring your provider keys, Quorum charges only for orchestration.
 
-## Install
+## Get started in 3 steps
 
-1. Download `quorum-vscode-0.1.0.vsix` from the [Releases page](https://github.com/jaquelinejaque/sovereignchain/releases).
-2. In VS Code: open the **Extensions** sidebar, click the `…` menu, choose **Install from VSIX…**, and pick the `.vsix` file.
-3. Open **Settings** (`Cmd+,` / `Ctrl+,`), search `quorum`, and set at minimum `quorum.endpoint` and either `quorum.apiKey` or your BYOK provider keys.
+1. **Get a free API key (no card)** — visit [quorum-ai.dev/signup](https://quorum-ai.dev/signup), enter your email, get 100 free consensus queries per month. Or run `Quorum: Get Free API Key` from the Command Palette after install — it opens the signup page in your browser.
+2. **Open Settings** (`Cmd+,` / `Ctrl+,`), search `quorum`, paste the key into `quorum.apiKey`.
+3. **Register your provider keys** so Quorum has models to orchestrate. Bring keys for Claude / GPT / Gemini / Mistral / etc. — the more you register, the richer the consensus. One command:
+
+   ```bash
+   curl -X POST https://api.quorum-ai.dev/v1/customer/keys \
+     -H "X-Quorum-API-Key: YOUR_QUORUM_KEY" \
+     -H "Content-Type: application/json" \
+     -d '{"anthropic":"sk-ant-...","openai":"sk-...","gemini":"..."}'
+   ```
+
+   Supported: anthropic, openai, gemini, nvidia (free tier!), mistral, cohere, grok, dashscope, replicate, deepseek, zhipu, moonshot. Each key is encrypted server-side (Fernet KEK). You pay your providers directly.
+
+## Install via Marketplace
+
+`sovereignchain.quorum-vscode` — search "Quorum Multi-LLM" in VS Code Extensions, or install from [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=sovereignchain.quorum-vscode).
+
+Or build from source:
+
+```bash
+git clone https://github.com/jaquelinejaque/sovereignchain.git
+cd sovereignchain/quorum-vscode
+npm install
+npm run build
+npm run package
+code --install-extension quorum-vscode-0.1.2.vsix
+```
 
 Or build from source:
 

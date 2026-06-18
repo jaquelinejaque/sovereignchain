@@ -11,6 +11,7 @@ import {
   registerAskAboutSelection,
   registerCompareImplementations,
   registerExplainSelection,
+  registerGetFreeKey,
   registerOpenSettings,
   registerReviewSelection
 } from './commands';
@@ -47,7 +48,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     registerExplainSelection(client, output, statusBar),
     registerReviewSelection(client, output, statusBar),
     registerCompareImplementations(client, output, statusBar),
-    registerOpenSettings()
+    registerOpenSettings(),
+    registerGetFreeKey()
   );
 
   output.appendLine(

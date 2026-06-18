@@ -4,6 +4,24 @@ All notable changes to the **Quorum** VS Code extension are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.2] — 2026-06-18
+
+### Added
+- New command `Quorum: Get Free API Key (signup)` — opens
+  https://quorum-ai.dev/signup so a new user can grab a free
+  100-queries/month key (BYOK; no card) without leaving VS Code.
+- Soft-warning toast on `Quorum: Ask` when `quorum.apiKey` is empty,
+  with one-click buttons to open signup or jump straight to the
+  Quorum settings page. Replaces the cryptic "Invalid API key"
+  server error that previously confronted new users.
+
+### Changed
+- README rewritten as a 3-step quickstart (get free key → paste in
+  settings → register provider keys via /v1/customer/keys). Removed
+  the old "download .vsix from Releases" flow in favour of the
+  Marketplace install + the free signup link, since the marketplace
+  listing is now the primary distribution channel.
+
 ## [0.1.1] — 2026-06-17
 
 ### Fixed
