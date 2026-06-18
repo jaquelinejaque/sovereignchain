@@ -1059,7 +1059,8 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
                     providers=providers,
                     budget_usd=1.0,
                     route=True,
-                    images=images
+                    images=images,
+                    user_id=api_record.user_id,
                 )
         except HTTPException:
             raise
@@ -1175,7 +1176,15 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
                     pr for pr in providers
                     if any(w in pr.name.lower() for w in wanted)
                 ] or providers  # if filter empties everything, fall back to all
-            result: ConsensusResult = await consensus(body.prompt, providers=providers, route=False)
+            # route=True activates the MoE router (picks ~3 best models instead of fanning out to all).
+            # user_id ties the request to RLHF weights + memory loop for this caller, so personalization
+            # accrues across queries. api_record.user_id is the email tied to the authenticated API key.
+            result: ConsensusResult = await consensus(
+                body.prompt,
+                providers=providers,
+                route=True,
+                user_id=api_record.user_id,
+            )
         except HTTPException:
             raise
         except RuntimeError as exc:
