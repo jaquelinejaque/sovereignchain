@@ -1,6 +1,6 @@
 # Quorum
 
-> Multi-LLM consensus engine. 8+ models in parallel. Semantic consensus via embeddings. Self-evolves with use. Patent-protected by HSP (PCT/US26/11908).
+> Multi-LLM consensus engine. 8+ models in parallel. Semantic consensus via embeddings. Self-evolves with use. Patent Pending: HSP (PCT/US26/11908).
 
 ```bash
 pip install quorum-ai
@@ -45,7 +45,7 @@ Full guide: [docs/CONTEXT_PROFILES.md](docs/CONTEXT_PROFILES.md) (also documents
 
 ## Why we exist
 
-Anthropic, OpenAI, Google, Microsoft **structurally cannot** sell a multi-vendor consensus engine — it would commoditize their own models. Quorum occupies that gap. Neutral. Auditable. Open source. Patent-protected.
+Anthropic, OpenAI, Google, Microsoft **structurally cannot** sell a multi-vendor consensus engine — it would commoditize their own models. Quorum occupies that gap. Neutral. Auditable. Open source. Patent Pending.
 
 ## The 13 self-evolution loops
 
@@ -189,8 +189,9 @@ All evolution loops are async writebacks — they never block the response path.
 
 | Version | Status | Date |
 |---|---|---|
-| v0.0.1 | 🟢 5 providers, semantic consensus, CLI | 2026-06-16 |
+| v0.0.1 | 🟢 5 providers, semantic consensus, CLI | 2026-06-15 |
 | v0.1.0 | 🟢 13 evolution loops, vector memory, HSP gate, FastAPI server, Stripe billing, EU AI Act cert | 2026-06-16 |
+| v0.1.5 | 🟢 BYOK, Firestore persistence, free signup, Hermes 3 (Nous), `/v1/consensus` provider filter | 2026-06-18 |
 | v1.0.0 | 🟡 Hosted SaaS public launch, multi-tenant, federated loop GA | Q4 2026 |
 
 ## License

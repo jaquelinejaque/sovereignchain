@@ -1,10 +1,15 @@
 """HSP Gate — fail-closed approval before high-stakes evolution actions.
 
-Patent: PCT/US26/11908.
+Patent Pending: PCT/US26/11908.
 Commercial use requires HSP license. See LICENSE-HSP.
 
 The gate is a decorator that intercepts a function call and requires a human
 (or HSP-certified webhook) to approve before the function executes.
+
+DEFAULT IS FAIL-CLOSED: if HSP_GATE_WEBHOOK is unset, the gate DENIES the
+action. To run without a webhook (development only), explicitly set
+HSP_GATE_DEV_MODE=1. This matches the marketed behavior — "fail-closed
+execution layer" — instead of silently passing in production.
 """
 
 from __future__ import annotations
@@ -36,11 +41,13 @@ def requires_hsp_approval(
         risk_level: "low" | "medium" | "high" | "critical".
 
     Behavior:
-        - If HSP_GATE_WEBHOOK is unset, the gate logs and PASSES (dev mode).
-        - If set, the gate POSTs the action context to the webhook and waits
-          for a JSON response {approved: bool, reason?: str}.
+        - DEFAULT: if HSP_GATE_WEBHOOK is unset, the gate DENIES (fail-closed).
+        - If HSP_GATE_DEV_MODE=1 is explicitly set, no webhook required and
+          the call passes through — for local development only.
+        - If HSP_GATE_WEBHOOK is set, the gate POSTs the action context to
+          the webhook and waits for {approved: bool, reason?: str}.
         - On approval, the wrapped function runs.
-        - On denial, raises HSPGateDenied.
+        - On denial / no webhook / unreachable webhook, raises HSPGateDenied.
 
     Example:
         @requires_hsp_approval(action="promote_llama_lora", risk_level="high")
@@ -52,9 +59,14 @@ def requires_hsp_approval(
         async def wrapper(*args: Any, **kwargs: Any) -> T:
             webhook = os.getenv("HSP_GATE_WEBHOOK", "")
             if not webhook:
-                # Dev mode — no HSP gate configured. Log + pass.
-                # Production deployments MUST configure HSP_GATE_WEBHOOK.
-                return await fn(*args, **kwargs)
+                # Fail-closed by default. Explicit opt-out only via env.
+                if os.getenv("HSP_GATE_DEV_MODE") == "1":
+                    return await fn(*args, **kwargs)
+                raise HSPGateDenied(
+                    f"HSP gate denied action '{action}': HSP_GATE_WEBHOOK is "
+                    "not configured (fail-closed default). Configure a webhook "
+                    "or set HSP_GATE_DEV_MODE=1 for local development."
+                )
 
             ctx = {
                 "action": action,
