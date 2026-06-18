@@ -1044,14 +1044,6 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
                     status_code=422,
                     detail="No provider keys registered. POST to /v1/customer/keys first.",
                 )
-            # Soft filter — match req.providers against provider .name by substring
-            # so "gemini" matches "gemini-flash", "hermes" matches both Hermes models.
-            if req.providers:
-                wanted = [p.lower() for p in req.providers]
-                providers = [
-                    pr for pr in providers
-                    if any(w in pr.name.lower() for w in wanted)
-                ] or providers  # if filter empties everything, fall back to all
             if req.quorum_mode == "debate":
                 from quorum.evolution.swarm import run_debate
                 result = await run_debate(
@@ -1175,6 +1167,14 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
                         "deepseek, zhipu, moonshot)."
                     ),
                 )
+            # Soft filter — match body.providers against provider .name by substring
+            # so "gemini" matches "gemini-flash", "hermes" matches both Hermes models.
+            if body.providers:
+                wanted = [p.lower() for p in body.providers]
+                providers = [
+                    pr for pr in providers
+                    if any(w in pr.name.lower() for w in wanted)
+                ] or providers  # if filter empties everything, fall back to all
             result: ConsensusResult = await consensus(body.prompt, providers=providers, route=False)
         except HTTPException:
             raise
