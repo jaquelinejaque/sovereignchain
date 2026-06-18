@@ -355,6 +355,44 @@ class ConsensusRequest(BaseModel):
         return v
 
 
+class ChatMessage(BaseModel):
+    role: Literal["system", "user", "assistant"]
+    content: Any  # str or list[dict]
+
+
+class ChatCompletionRequest(BaseModel):
+    model: str = "quorum"
+    messages: list[ChatMessage]
+    temperature: Optional[float] = 1.0
+    quorum_mode: str = "consensus"
+
+
+class ChatMessageResponse(BaseModel):
+    role: str = "assistant"
+    content: str
+
+
+class Choice(BaseModel):
+    index: int = 0
+    message: ChatMessageResponse
+    finish_reason: str = "stop"
+
+
+class Usage(BaseModel):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
+class ChatCompletionResponse(BaseModel):
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str = "quorum-consensus"
+    choices: list[Choice]
+    usage: Usage
+
+
 class FeedbackRequest(BaseModel):
     """POST /v1/feedback body."""
 
@@ -943,6 +981,116 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
         time), so anonymous access is safe.
         """
         return HealthResponse(time=datetime.now(timezone.utc))
+
+    # ---------- openai proxy -------------------------------------------------
+
+    @app.post("/v1/chat/completions", tags=["proxy"], response_model=ChatCompletionResponse)
+    async def chat_completions(
+        req: ChatCompletionRequest,
+        request: Request,
+        api_record: APIKeyRecord = Depends(_require_api_key),
+    ) -> ChatCompletionResponse:
+        """OpenAI-compatible drop-in proxy. Routes to the Consensus Engine."""
+        state = _get_state(request)
+
+        if _SLOWAPI_AVAILABLE and hasattr(app.state, "limiter"):
+            limit_string = _dynamic_limit_for_request(request)
+            try:
+                app.state.limiter.limit(  # type: ignore[attr-defined]
+                    limit_string, key_func=_rate_limit_key
+                )(_noop)(request)  # type: ignore[arg-type]
+            except RateLimitExceeded as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"rate limit exceeded ({limit_string})",
+                ) from exc
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("slowapi limiter call failed (%s) — degrading open", exc)
+
+        customer_id = api_record.user_id
+        quota = await state.billing.check_quota(customer_id)
+        if quota.over_quota:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="quota_exceeded"
+            )
+
+        prompt_parts = []
+        images = []
+        for msg in req.messages:
+            if isinstance(msg.content, str):
+                prompt_parts.append(f"{msg.role.upper()}: {msg.content}")
+            elif isinstance(msg.content, list):
+                role_text = []
+                for part in msg.content:
+                    if part.get("type") == "text":
+                        role_text.append(part.get("text", ""))
+                    elif part.get("type") == "image_url":
+                        url = part.get("image_url", {}).get("url", "")
+                        if url.startswith("data:image"):
+                            b64 = url.split("base64,")[-1]
+                            images.append(b64)
+                prompt_parts.append(f"{msg.role.upper()}: {' '.join(role_text)}")
+        prompt = "\n".join(prompt_parts)
+
+        try:
+            from quorum.customer_keys import default_store
+            from quorum.providers.registry import load_default_providers
+            ck_store = default_store()
+            customer_keys_dict = ck_store.get_all(api_record.user_id)
+            providers = load_default_providers(customer_keys=customer_keys_dict)
+            if not providers:
+                raise HTTPException(
+                    status_code=422,
+                    detail="No provider keys registered. POST to /v1/customer/keys first.",
+                )
+            # Soft filter — match req.providers against provider .name by substring
+            # so "gemini" matches "gemini-flash", "hermes" matches both Hermes models.
+            if req.providers:
+                wanted = [p.lower() for p in req.providers]
+                providers = [
+                    pr for pr in providers
+                    if any(w in pr.name.lower() for w in wanted)
+                ] or providers  # if filter empties everything, fall back to all
+            if req.quorum_mode == "debate":
+                from quorum.evolution.swarm import run_debate
+                result = await run_debate(
+                    prompt,
+                    providers=providers,
+                    rounds=1,
+                    timeout_s=60.0,
+                    images=images
+                )
+            else:
+                result = await consensus(
+                    prompt,
+                    providers=providers,
+                    budget_usd=1.0,
+                    route=True,
+                    images=images
+                )
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("consensus failed via proxy")
+            raise HTTPException(status_code=500, detail=str(exc))
+
+        try:
+            await state.billing.record_usage(customer_id, 1, result.total_cost_usd)
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to record billing for %s", customer_id)
+
+        msg_resp = ChatMessageResponse(role="assistant", content=result.answer)
+        choice = Choice(index=0, message=msg_resp, finish_reason="stop")
+        total_tokens = sum(m.tokens_in + m.tokens_out for m in result.models)
+        usage = Usage(prompt_tokens=0, completion_tokens=total_tokens, total_tokens=total_tokens)
+        
+        return ChatCompletionResponse(
+            id=f"chatcmpl-{uuid.uuid4().hex}",
+            created=int(time.time()),
+            choices=[choice],
+            usage=usage
+        )
 
     # ---------- consensus ----------------------------------------------------
 
