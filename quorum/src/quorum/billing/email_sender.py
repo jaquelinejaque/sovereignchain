@@ -199,3 +199,109 @@ async def send_welcome_email(*, to: str, api_key: str, tier: str = "Pro") -> boo
     html = welcome_html(api_key=api_key, tier=tier, email=to)
     result = await send_email(to=to, subject=subject, html=html)
     return result is not None
+
+
+def free_welcome_html(api_key: str, email: str = "") -> str:
+    """Welcome email for the self-service Free tier (100 queries/month, BYOK).
+
+    Different copy than the paid welcome: emphasises that the customer
+    brings their own provider keys (we just orchestrate), that quorum
+    works better with MORE keys registered, and that Pro unlocks 5,000
+    queries plus the dashboard / audit cert features when they're ready.
+    """
+    safe_email = email or "there"
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Welcome to Quorum Free</title>
+</head>
+<body style="margin:0;padding:0;background:#0a0a0c;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;color:#e8e8ea;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0a0a0c;padding:48px 24px;">
+    <tr><td align="center">
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;background:#111114;border:1px solid #1f1f24;border-radius:10px;">
+
+        <tr><td style="padding:36px 36px 12px;text-align:center;">
+          <div style="font-family:'Cormorant Garamond',Georgia,serif;font-size:28px;color:#7fb8e8;letter-spacing:3px;">QUORUM</div>
+          <div style="color:#8b8b90;font-size:11px;letter-spacing:3px;text-transform:uppercase;margin-top:6px;">Multi-LLM Consensus Engine · Free tier</div>
+        </td></tr>
+
+        <tr><td style="padding:0 36px 24px;">
+          <p style="font-size:15px;line-height:1.6;color:#d8d8dc;">Welcome, {safe_email}. You've got <strong>100 free consensus queries per month</strong> to see how multi-LLM consensus actually feels on your own work — no card on file.</p>
+          <p style="font-size:15px;line-height:1.6;color:#d8d8dc;">Your API key — <strong>copy it now, we don't store it in plaintext and cannot show it again</strong>:</p>
+
+          <div style="margin:20px 0;padding:18px 20px;background:#050507;border:1px solid #2a2a30;border-radius:6px;font-family:'SF Mono',Menlo,Consolas,monospace;font-size:14px;color:#7fb8e8;word-break:break-all;">{api_key}</div>
+
+          <p style="font-size:13px;color:#9a9aa0;margin-top:8px;">If you lose it, reply to this email and I'll issue a replacement and revoke this one.</p>
+        </td></tr>
+
+        <tr><td style="padding:0 36px 24px;">
+          <div style="margin-bottom:18px;padding:16px;background:#1a1107;border:1px solid #caac7d;border-radius:6px;">
+            <div style="font-size:14px;color:#caac7d;margin-bottom:8px;"><strong>STEP 1 — register your provider keys (BYOK)</strong></div>
+            <p style="font-size:13px;color:#d8d8dc;line-height:1.6;margin:0 0 10px;">
+              Quorum is BYOK: you bring keys for Claude / GPT / Gemini / Mistral / etc. and we orchestrate the consensus across them. <strong>The more providers you register, the richer the consensus</strong> — a single key still works, but real divergence (and the "aha, the models actually disagree on this") only shows up with 3+.
+            </p>
+            <pre style="margin:0;padding:12px;background:#050507;border:1px solid #2a2a30;border-radius:6px;font-family:'SF Mono',Menlo,monospace;font-size:11px;color:#caac7d;overflow-x:auto;">curl -X POST https://api.quorum-ai.dev/v1/customer/keys \\
+  -H "X-Quorum-API-Key: {api_key[:14]}..." \\
+  -H "Content-Type: application/json" \\
+  -d '{{"anthropic":"sk-ant-...","openai":"sk-...","gemini":"...","mistral":"..."}}'</pre>
+            <p style="font-size:12px;color:#9a9aa0;margin:8px 0 0;">
+              Supported: anthropic, openai, gemini, nvidia, mistral, cohere, grok, dashscope, replicate, deepseek, zhipu, moonshot. Each key is encrypted at rest (Fernet + server-side KEK). You pay your providers directly — Quorum charges only for orchestration. NVIDIA AI Foundation has a free tier with 6 OSS models if you want to start at zero cost.
+            </p>
+          </div>
+
+          <div style="margin-bottom:18px;">
+            <div style="font-size:14px;color:#e8e8ea;margin-bottom:6px;"><strong>STEP 2 — run a consensus query</strong></div>
+            <pre style="margin:0;padding:14px;background:#050507;border:1px solid #2a2a30;border-radius:6px;font-family:'SF Mono',Menlo,monospace;font-size:12px;color:#caac7d;overflow-x:auto;">curl -X POST https://api.quorum-ai.dev/v1/consensus \\
+  -H "X-Quorum-API-Key: {api_key[:14]}..." \\
+  -H "Content-Type: application/json" \\
+  -d '{{"prompt":"Should I use sqlite or postgres for 100 paying users?"}}'</pre>
+          </div>
+
+          <div>
+            <div style="font-size:14px;color:#e8e8ea;margin-bottom:6px;"><strong>STEP 3 — see the disagreement</strong></div>
+            <p style="font-size:13px;color:#b8b8be;line-height:1.6;margin:0;">Check <code style="background:#1a1a1f;padding:2px 6px;border-radius:3px;color:#caac7d;">/v1/usage</code> to see remaining queries. The response payload shows every model's answer + which ones agreed/disagreed — that divergence is the signal you're paying for, not the headline answer.</p>
+          </div>
+        </td></tr>
+
+        <tr><td style="padding:0 36px 24px;">
+          <div style="font-size:13px;color:#8b8b90;letter-spacing:2px;text-transform:uppercase;margin-bottom:12px;">Free tier limits</div>
+          <ul style="font-size:14px;line-height:1.7;color:#d8d8dc;padding-left:20px;margin:0;">
+            <li><strong>100 consensus queries / month</strong> (resets 1st of each month)</li>
+            <li>BYOK only — you bring your provider keys, we orchestrate</li>
+            <li>Up to 12 providers in your pool (one of each: anthropic / openai / gemini / nvidia / mistral / cohere / grok / qwen / replicate / deepseek / zhipu / moonshot)</li>
+            <li>No audit certificate, no dashboard, no SSO — those are Pro</li>
+          </ul>
+        </td></tr>
+
+        <tr><td style="padding:0 36px 28px;">
+          <div style="background:#0f1419;border:1px solid #1f2937;border-radius:6px;padding:18px;">
+            <div style="font-size:13px;color:#7fb8e8;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">When you outgrow free</div>
+            <p style="font-size:14px;line-height:1.6;color:#d8d8dc;margin:0 0 10px;">
+              Pro is <strong>£49/month</strong> — same BYOK model (you still pay your providers), but with <strong>5,000 queries/month</strong> + EU AI Act audit certificates + the disagreement-matrix dashboard. Upgrade anytime at <a href="https://quorum-ai.dev" style="color:#7fb8e8;">quorum-ai.dev</a>.
+            </p>
+          </div>
+        </td></tr>
+
+        <tr><td style="padding:18px 36px 28px;border-top:1px solid #1f1f24;">
+          <p style="font-size:12px;color:#7a7a80;margin:0;line-height:1.6;">
+            Reply to this email for support, billing, or to suggest a provider we haven't added yet.<br>
+            Open-source self-host (free, Apache 2.0): <a href="https://github.com/jaquelinejaque/sovereignchain" style="color:#7fb8e8;">github.com/jaquelinejaque/sovereignchain</a>
+          </p>
+        </td></tr>
+
+      </table>
+      <div style="font-size:11px;color:#5a5a60;margin-top:18px;">Sovereign Chain Ltd · UK · PCT/US26/11908</div>
+    </td></tr>
+  </table>
+</body>
+</html>"""
+
+
+async def send_free_welcome_email(*, to: str, api_key: str) -> bool:
+    """Send the Free-tier welcome email."""
+    subject = "Welcome to Quorum — your free API key inside"
+    html = free_welcome_html(api_key=api_key, email=to)
+    result = await send_email(to=to, subject=subject, html=html)
+    return result is not None

@@ -71,6 +71,7 @@ SPDX-License-Identifier: Apache-2.0 WITH HSP-Commercial-Restrictions
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import logging
@@ -823,6 +824,113 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
 </body>
 </html>"""
         return HTMLResponse(content=html)
+
+    # ---------- self-service free signup -----------------------------------
+
+    @app.post("/v1/signup", tags=["signup"])
+    async def signup(
+        body: dict,
+        request: Request,
+    ) -> dict[str, object]:
+        """Self-service Free tier signup (100 queries/month, BYOK).
+
+        Body: ``{"email": "user@example.com"}``. Returns the plaintext API
+        key once (also sent by email). Rate-limited per IP via Firestore
+        so a single host can't farm thousands of keys in a burst.
+
+        Free tier is BYOK: the issued key only authenticates to the
+        orchestration layer — every consensus call still requires the
+        customer to register at least one provider key via
+        /v1/customer/keys. That keeps operator token cost at zero and
+        makes the free tier honest about what it is (a self-serve
+        sandbox of the multi-LLM orchestration, not free Claude/GPT).
+        """
+        state = _get_state(request)
+        email = str(body.get("email", "")).strip().lower()
+        if not email or "@" not in email or len(email) > 256:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="valid email required",
+            )
+
+        # Rate limit per IP via Firestore: max 3 free signups per IP per
+        # rolling 24h. Burst-protects against scripted abuse without
+        # blocking a household NAT with two devs trying it.
+        ip = (request.headers.get("x-forwarded-for", "").split(",")[0].strip()
+              or request.headers.get("x-real-ip", "")
+              or (request.client.host if request.client else "unknown"))
+        try:
+            from quorum.firestore_stores import use_firestore
+            if use_firestore():
+                from google.cloud import firestore  # type: ignore
+                fc = firestore.Client()
+                rl_ref = fc.collection("quorum_signup_ratelimit").document(
+                    base64.urlsafe_b64encode(ip.encode("utf-8")).decode("ascii").rstrip("=")
+                )
+                snap = rl_ref.get()
+                now = time.time()
+                window_start = now - 86400.0
+                signups = []
+                if snap.exists:
+                    signups = [
+                        t for t in (snap.to_dict() or {}).get("signups", [])
+                        if isinstance(t, (int, float)) and t > window_start
+                    ]
+                if len(signups) >= 3:
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail="too many free signups from this network; try again tomorrow or upgrade Pro",
+                    )
+                signups.append(now)
+                rl_ref.set({"ip": ip, "signups": signups, "updated_at": now})
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("signup rate-limit check failed (%s); allowing this one", exc)
+
+        # Issue the free key and email it.
+        try:
+            plaintext, _record = await state.api_key_store.issue(
+                user_id=email, tier="free",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("free signup failed for %s", email)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="signup failed; please try again or contact support",
+            ) from exc
+
+        # Alias tier under the email in billing so /v1/usage shows the
+        # free 100/mo limit immediately rather than the unknown-customer
+        # default.
+        try:
+            state.billing._set_tier_local(  # noqa: SLF001
+                email, "free", subscription_id=None,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("could not alias free tier for %s", email)
+
+        # Send welcome email (Resend) — fire and continue even if it fails
+        emailed = False
+        try:
+            from quorum.billing.email_sender import send_free_welcome_email
+            emailed = await send_free_welcome_email(to=email, api_key=plaintext)
+        except Exception:  # noqa: BLE001
+            logger.exception("free welcome email failed for %s", email)
+
+        logger.info("free signup ok email=%s ip=%s emailed=%s", email, ip, emailed)
+        return {
+            "ok": True,
+            "tier": "free",
+            "monthly_query_limit": 100,
+            "api_key": plaintext,  # shown ONCE — copy now
+            "emailed": emailed,
+            "next_step": "register provider keys with POST /v1/customer/keys",
+            "supported_providers": [
+                "anthropic", "openai", "gemini", "nvidia", "mistral", "cohere",
+                "grok", "dashscope", "replicate", "deepseek", "zhipu", "moonshot",
+            ],
+        }
 
     # ---------- health -------------------------------------------------------
 
