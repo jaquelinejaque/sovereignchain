@@ -275,11 +275,20 @@ def free_welcome_html(api_key: str, email: str = "") -> str:
           </ul>
         </td></tr>
 
+        <tr><td style="padding:0 36px 24px;">
+          <div style="background:#0a1820;border:1px solid #1f3a4a;border-radius:6px;padding:18px;">
+            <div style="font-size:13px;color:#7fe8c8;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">Bonus — your queries help train the engine</div>
+            <p style="font-size:13px;line-height:1.6;color:#d8d8dc;margin:0;">
+              Every consensus query you run feeds Quorum's evolution loops — the memory recall, the MoE router, the model-vs-model ELO rater, the prompt rewriter. The more solo devs use the free tier, the smarter the consensus engine becomes for everyone. You're not just trying a product — you're part of how it learns.
+            </p>
+          </div>
+        </td></tr>
+
         <tr><td style="padding:0 36px 28px;">
           <div style="background:#0f1419;border:1px solid #1f2937;border-radius:6px;padding:18px;">
-            <div style="font-size:13px;color:#7fb8e8;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">When you outgrow free</div>
-            <p style="font-size:14px;line-height:1.6;color:#d8d8dc;margin:0 0 10px;">
-              Pro is <strong>£49/month</strong> — same BYOK model (you still pay your providers), but with <strong>5,000 queries/month</strong> + EU AI Act audit certificates + the disagreement-matrix dashboard. Upgrade anytime at <a href="https://quorum-ai.dev" style="color:#7fb8e8;">quorum-ai.dev</a>.
+            <div style="font-size:13px;color:#7fb8e8;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">For companies — Pro tier</div>
+            <p style="font-size:14px;line-height:1.6;color:#d8d8dc;margin:0;">
+              Need EU AI Act audit certificates per query + the disagreement-matrix dashboard + 5,000 queries/month + SLA? <strong>Pro is £49/month</strong>, designed for teams shipping AI in regulated industries (legal, fintech, health). Reply to this email or visit <a href="https://quorum-ai.dev#pricing" style="color:#7fb8e8;">quorum-ai.dev#pricing</a>.
             </p>
           </div>
         </td></tr>
