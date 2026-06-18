@@ -10,15 +10,18 @@ from quorum.providers.base import ModelResponse, Provider
 
 
 class OllamaProvider(Provider):
-    name = "llama-local"
-
     def __init__(
         self,
         model: str = "llama3.2",
         host: str | None = None,
+        name: str | None = None,
     ):
         self.model = model
         self.host = (host or os.getenv("OLLAMA_HOST", "http://localhost:11434")).rstrip("/")
+        # Default name kept as "llama-local" for backwards compatibility with the
+        # default llama3.2 instance (Hebbian/ELO history is keyed by this name).
+        # Other models surface as ollama:<model> so they get their own evolution row.
+        self.name = name or ("llama-local" if model.startswith("llama3.2") else f"ollama:{model}")
 
     async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
         payload = {

@@ -96,3 +96,17 @@ def qwen_2_5() -> ReplicateProvider:
 
 def phi_4() -> ReplicateProvider:
     return ReplicateProvider("microsoft/phi-4", name="phi-4")
+
+
+def hermes_3_70b() -> ReplicateProvider:
+    return ReplicateProvider(
+        "nousresearch/hermes-3-llama-3.1-70b",
+        name="hermes-3-llama-3.1-70b",
+    )
+
+
+def hermes_3_405b() -> ReplicateProvider:
+    return ReplicateProvider(
+        "nousresearch/hermes-3-llama-3.1-405b",
+        name="hermes-3-llama-3.1-405b",
+    )

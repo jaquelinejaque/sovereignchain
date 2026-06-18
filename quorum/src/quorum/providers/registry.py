@@ -85,12 +85,14 @@ def load_default_providers(
         from quorum.providers.gemini import GeminiProvider
         providers.append(GeminiProvider(api_key=k))
 
-    # Replicate (Llama, Qwen, DeepSeek via Replicate)
+    # Replicate (Llama, Qwen, DeepSeek, Hermes via Replicate)
     k = _key("replicate")
     if k:
         from quorum.providers import replicate as r
         providers.append(r.llama_3_3() if not byok else r.ReplicateProvider(model_slug="meta/llama-3.3-70b-instruct", api_token=k))
         providers.append(r.deepseek_v3() if not byok else r.ReplicateProvider(model_slug="deepseek-ai/deepseek-v3", api_token=k))
+        providers.append(r.hermes_3_70b() if not byok else r.ReplicateProvider(model_slug="nousresearch/hermes-3-llama-3.1-70b", name="hermes-3-llama-3.1-70b", api_token=k))
+        providers.append(r.hermes_3_405b() if not byok else r.ReplicateProvider(model_slug="nousresearch/hermes-3-llama-3.1-405b", name="hermes-3-llama-3.1-405b", api_token=k))
 
     # NVIDIA AI Foundation — multiple OSS models on one key
     k = _key("nvidia")
@@ -162,7 +164,10 @@ def load_default_providers(
     if not byok:
         try:
             from quorum.providers.ollama import OllamaProvider
-            providers.append(OllamaProvider())
+            providers.append(OllamaProvider())  # default llama3.2
+            # Hermes 3 (Nous Research) — same family, low-RLHF, good for audit/agentic.
+            # Silently skipped if not pulled (provider returns ollama_unreachable error).
+            providers.append(OllamaProvider(model="hermes3:8b"))
         except Exception:  # noqa: BLE001
             pass
 
