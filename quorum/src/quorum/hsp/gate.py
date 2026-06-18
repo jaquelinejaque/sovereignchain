@@ -95,15 +95,36 @@ def requires_hsp_approval(
             if not webhook:
                 # No webhook → only local + explicit DEV_MODE may pass.
                 hosted = _is_hosted()
-                if not hosted and os.getenv("HSP_GATE_DEV_MODE") == "1":
-                    return await fn(*args, **kwargs)
+                if not hosted:
+                    # Local research mode: explicit opt-in that bypasses the
+                    # gate AND emits an audit line so the human can grep.
+                    if os.getenv("QUORUM_LOCAL_RESEARCH_MODE") == "1":
+                        try:
+                            from pathlib import Path as _P
+                            from datetime import datetime as _dt
+                            log = _P.home() / ".quorum" / "research-mode.log"
+                            log.parent.mkdir(parents=True, exist_ok=True)
+                            with log.open("a") as _f:
+                                _f.write(
+                                    f"{_dt.now().strftime('%Y-%m-%d')} "
+                                    f"{_dt.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ')} "
+                                    f"HSP_BYPASS action={action!r} risk={risk_level!r} "
+                                    f"fn={fn.__name__!r}\n"
+                                )
+                        except Exception:  # noqa: BLE001
+                            pass  # never let logging fail the action
+                        return await fn(*args, **kwargs)
+                    if os.getenv("HSP_GATE_DEV_MODE") == "1":
+                        return await fn(*args, **kwargs)
                 # Hosted env or no DEV_MODE → deny.
                 hint = (
                     "Hosted environment detected — DEV_MODE is ignored, "
                     "configure HSP_GATE_WEBHOOK with a real approver."
                     if hosted else
                     "Configure HSP_GATE_WEBHOOK with an approver webhook, "
-                    "or set HSP_GATE_DEV_MODE=1 for local development."
+                    "or set HSP_GATE_DEV_MODE=1 for local development, "
+                    "or QUORUM_LOCAL_RESEARCH_MODE=1 for autonomous "
+                    "evolution (audited to ~/.quorum/research-mode.log)."
                 )
                 raise HSPGateDenied(
                     f"HSP gate denied action '{action}' (fail-closed). {hint}"
