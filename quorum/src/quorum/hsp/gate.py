@@ -6,10 +6,20 @@ Commercial use requires HSP license. See LICENSE-HSP.
 The gate is a decorator that intercepts a function call and requires a human
 (or HSP-certified webhook) to approve before the function executes.
 
-DEFAULT IS FAIL-CLOSED: if HSP_GATE_WEBHOOK is unset, the gate DENIES the
-action. To run without a webhook (development only), explicitly set
-HSP_GATE_DEV_MODE=1. This matches the marketed behavior — "fail-closed
-execution layer" — instead of silently passing in production.
+POSTURE (intentional split):
+* HOSTED / commercial (Cloud Run, Kubernetes, ECS, paying customers):
+  ALWAYS fail-closed. HSP_GATE_DEV_MODE is *ignored* here so a tenant
+  cannot just flip an env var and turn off the supervision layer they
+  pay for. Detection is by infra-provided env (K_SERVICE for Cloud Run,
+  KUBERNETES_SERVICE_HOST for k8s, ECS_CONTAINER_METADATA_URI for ECS).
+* LOCAL CLI / self-host researcher: HSP_GATE_DEV_MODE=1 unlocks
+  unrestricted evolution. This is the path Jaqueline uses to iterate on
+  loops without round-tripping every weight nudge through a webhook.
+  The CLI entry point sets DEV_MODE=1 automatically when invoked
+  outside a hosted environment.
+
+The gate fails closed by default — both paths above are explicit
+opt-ins. A misconfigured deployment denies, never silently passes.
 """
 
 from __future__ import annotations
@@ -28,6 +38,25 @@ class HSPGateDenied(RuntimeError):
     """Raised when an HSP gate denies an action."""
 
 
+# Hosted-environment markers. If ANY of these env vars are present, the gate
+# treats this process as commercial/hosted and ignores HSP_GATE_DEV_MODE.
+# A real webhook is then mandatory.
+_HOSTED_MARKERS = (
+    "K_SERVICE",                  # Cloud Run (Google)
+    "KUBERNETES_SERVICE_HOST",    # any k8s cluster
+    "ECS_CONTAINER_METADATA_URI", # AWS ECS
+    "ECS_CONTAINER_METADATA_URI_V4",
+    "AWS_LAMBDA_FUNCTION_NAME",   # Lambda
+    "FUNCTION_TARGET",            # Google Cloud Functions
+    "WEBSITE_INSTANCE_ID",        # Azure App Service
+)
+
+
+def _is_hosted() -> bool:
+    """True when this process is running in a commercial hosting environment."""
+    return any(os.environ.get(k) for k in _HOSTED_MARKERS)
+
+
 def requires_hsp_approval(
     *,
     action: str,
@@ -42,10 +71,15 @@ def requires_hsp_approval(
 
     Behavior:
         - DEFAULT: if HSP_GATE_WEBHOOK is unset, the gate DENIES (fail-closed).
-        - If HSP_GATE_DEV_MODE=1 is explicitly set, no webhook required and
-          the call passes through — for local development only.
-        - If HSP_GATE_WEBHOOK is set, the gate POSTs the action context to
-          the webhook and waits for {approved: bool, reason?: str}.
+        - HOSTED ENV (Cloud Run / k8s / ECS / Lambda / Functions / App
+          Service): HSP_GATE_DEV_MODE is *ignored*. Only a real webhook
+          unlocks the call. This is the commercial guarantee — a tenant
+          cannot flip an env var to disable supervision they pay for.
+        - LOCAL ENV (no hosted markers present): HSP_GATE_DEV_MODE=1
+          unlocks the call without a webhook. This is the local-research
+          path the CLI uses.
+        - If HSP_GATE_WEBHOOK is set, the gate POSTs the action context
+          to the webhook and waits for {approved: bool, reason?: str}.
         - On approval, the wrapped function runs.
         - On denial / no webhook / unreachable webhook, raises HSPGateDenied.
 
@@ -59,13 +93,20 @@ def requires_hsp_approval(
         async def wrapper(*args: Any, **kwargs: Any) -> T:
             webhook = os.getenv("HSP_GATE_WEBHOOK", "")
             if not webhook:
-                # Fail-closed by default. Explicit opt-out only via env.
-                if os.getenv("HSP_GATE_DEV_MODE") == "1":
+                # No webhook → only local + explicit DEV_MODE may pass.
+                hosted = _is_hosted()
+                if not hosted and os.getenv("HSP_GATE_DEV_MODE") == "1":
                     return await fn(*args, **kwargs)
-                raise HSPGateDenied(
-                    f"HSP gate denied action '{action}': HSP_GATE_WEBHOOK is "
-                    "not configured (fail-closed default). Configure a webhook "
+                # Hosted env or no DEV_MODE → deny.
+                hint = (
+                    "Hosted environment detected — DEV_MODE is ignored, "
+                    "configure HSP_GATE_WEBHOOK with a real approver."
+                    if hosted else
+                    "Configure HSP_GATE_WEBHOOK with an approver webhook, "
                     "or set HSP_GATE_DEV_MODE=1 for local development."
+                )
+                raise HSPGateDenied(
+                    f"HSP gate denied action '{action}' (fail-closed). {hint}"
                 )
 
             ctx = {
