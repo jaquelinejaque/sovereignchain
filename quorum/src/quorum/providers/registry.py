@@ -171,4 +171,15 @@ def load_default_providers(
         except Exception:  # noqa: BLE001
             pass
 
+        # Claude Code CLI — uses the local user's Claude Pro/Max subscription
+        # instead of the billed Anthropic API. Skipped silently if `claude`
+        # isn't on PATH (the provider also self-checks and returns a clean
+        # error so it doesn't break consensus). Hosted mode (byok=True) never
+        # reaches this branch — Cloud Run has no Claude CLI installed.
+        try:
+            from quorum.providers.claude_cli import ClaudeCLIProvider
+            providers.append(ClaudeCLIProvider())
+        except Exception:  # noqa: BLE001
+            pass
+
     return providers
