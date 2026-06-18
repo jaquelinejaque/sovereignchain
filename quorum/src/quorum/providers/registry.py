@@ -68,9 +68,9 @@ def load_default_providers(
     k = _key("anthropic")
     if k:
         from quorum.providers import anthropic as an
-        providers.append(an.claude_sonnet() if not byok else an.ClaudeProvider(model="claude-sonnet-4-6", api_key=k))
-        providers.append(an.claude_opus() if not byok else an.ClaudeProvider(model="claude-opus-4-8", api_key=k))
-        providers.append(an.claude_haiku() if not byok else an.ClaudeProvider(model="claude-haiku-4-5", api_key=k))
+        providers.append(an.claude_sonnet() if not byok else an.AnthropicProvider(model="claude-sonnet-4-6", api_key=k))
+        providers.append(an.claude_opus() if not byok else an.AnthropicProvider(model="claude-opus-4-8", api_key=k))
+        providers.append(an.claude_haiku() if not byok else an.AnthropicProvider(model="claude-haiku-4-5", api_key=k))
 
     # OpenAI — GPT
     k = _key("openai")
