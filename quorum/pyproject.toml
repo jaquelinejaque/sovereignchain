@@ -45,6 +45,7 @@ all = ["quorum-ai[providers,storage,dev]"]
 [project.scripts]
 quorum = "quorum.cli:app"
 quorum-server = "quorum.server.main:run"
+quorum-feedback = "quorum.evolution.feedback_cli:app"
 
 [project.urls]
 Homepage = "https://github.com/jaquelinejaque/sovereignchain"
