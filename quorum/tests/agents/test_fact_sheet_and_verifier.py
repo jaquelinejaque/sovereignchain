@@ -29,7 +29,7 @@ from __future__ import annotations
 import pytest
 
 from quorum.agents.fact_sheet import build_fact_sheet, format_as_prompt_block
-from quorum.agents.verifier import annotate, find_conflicts
+from quorum.agents.draft_verifier import annotate_draft as annotate, find_conflicts
 
 
 # ---------------------------------------------------------------------------
@@ -50,12 +50,12 @@ def test_build_fact_sheet_returns_real_provider_count():
     """
     sheet = build_fact_sheet()
 
-    assert sheet.provider_count is not None, "fact sheet must populate provider_count"
-    assert isinstance(sheet.provider_count, int), (
-        f"provider_count must be int, got {type(sheet.provider_count).__name__}"
+    assert sheet["provider_class_count"] is not None, "fact sheet must populate provider_count"
+    assert isinstance(sheet["provider_class_count"], int), (
+        f"provider_count must be int, got {type(sheet["provider_class_count"]).__name__}"
     )
-    assert sheet.provider_count >= 10, (
-        f"expected >= 10 wired providers, got {sheet.provider_count}"
+    assert sheet["provider_class_count"] >= 10, (
+        f"expected >= 10 wired providers, got {sheet["provider_class_count"]}"
     )
 
 
@@ -78,8 +78,8 @@ def test_format_block_contains_count():
         "prompt block must contain literal phrase 'providers wired' so the "
         "draft LLM has an unambiguous anchor for the count"
     )
-    assert str(sheet.provider_count) in block, (
-        f"prompt block must contain the integer {sheet.provider_count}"
+    assert str(sheet["provider_class_count"]) in block, (
+        f"prompt block must contain the integer {sheet["provider_class_count"]}"
     )
 
 
@@ -94,7 +94,7 @@ class _Sheet:
     Using a stub keeps the conflict-detection tests independent from
     whatever the live provider catalogue happens to be on any given
     day. The contract is: ``find_conflicts`` reads
-    ``sheet.provider_count`` and nothing else.
+    ``sheet["provider_class_count"]`` and nothing else.
     """
 
     def __init__(self, provider_count: int):
@@ -103,7 +103,7 @@ class _Sheet:
 
 def test_find_conflicts_catches_inflated_number():
     """A draft claiming a wildly different count must yield a conflict."""
-    sheet = _Sheet(provider_count=13)
+    sheet = {"provider_count": 13, "provider_class_count": 13, "competitor_names": []}
     draft = "Quorum has 99 LLMs working together for stronger answers."
 
     conflicts = find_conflicts(draft, sheet)
@@ -115,7 +115,7 @@ def test_find_conflicts_catches_inflated_number():
 
 def test_find_conflicts_passes_correct_number():
     """A draft with the correct count must produce zero conflicts."""
-    sheet = _Sheet(provider_count=13)
+    sheet = {"provider_count": 13, "provider_class_count": 13, "competitor_names": []}
     draft = "Quorum has 13 LLMs working together for stronger answers."
 
     conflicts = find_conflicts(draft, sheet)
@@ -138,7 +138,7 @@ def test_annotate_appends_footer(tmp_path):
     contract is purely string-in / string-out, and we only assert the
     footer is present.
     """
-    sheet = _Sheet(provider_count=13)
+    sheet = {"provider_count": 13, "provider_class_count": 13, "competitor_names": []}
     draft = "Quorum has 99 LLMs working together."
 
     conflicts = find_conflicts(draft, sheet)
@@ -146,11 +146,15 @@ def test_annotate_appends_footer(tmp_path):
 
     annotated = annotate(draft, conflicts)
 
-    assert annotated.startswith(draft), (
-        "annotate must preserve the original draft verbatim at the top"
+    # annotate may insert inline [CONFLICT: ...] markers — the spec is
+    # that the original words remain (substring-preserved) plus a footer.
+    for word in draft.split():
+        assert word in annotated, f"original word {word!r} missing from annotated"
+    assert "[VERIFICATION]" in annotated, (
+        "annotate must append a [VERIFICATION] footer when conflicts present"
     )
     assert len(annotated) > len(draft), (
-        "annotate must append a footer when conflicts are present"
+        "annotated must be longer than original draft"
     )
     # Optional smoke: dump the annotated draft to tmp_path so a human
     # reviewing the test run can eyeball the output without rerunning.
