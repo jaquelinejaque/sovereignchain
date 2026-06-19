@@ -1,4 +1,4 @@
-"""Multi-source web search — rotates across 5 endpoints to dodge throttles.
+"""Multi-source web search — fans out across 7 endpoints for breadth + redundancy.
 
 The overnight learner originally hit only DuckDuckGo, which APPEARED to throttle
 after ~50 sequential queries — actually it was returning empty pages because the
@@ -13,6 +13,11 @@ This module fans the same query out to:
   * Bing News RSS (no key) — covers business/marketing/trend topics that the
     other four miss (e.g. "hair salon e-commerce conversion" returned 0 from
     the original four but multiple fresh hits from Bing News).
+  * GitHub Search API (no auth, 10 req/min) — strong tech repo signal.
+  * Stack Exchange API (no key, 300/day) — Q&A on technical topics.
+
+Future addition (requires user signup): eBay Browse API (5000/day free) for
+product/commerce topics — gated on an App ID the user creates manually.
 
 Each source returns differently-shaped data, but we normalise to:
     [{"title": str, "url": str, "snippet": str, "source": str}, ...]
@@ -36,7 +41,7 @@ class SearchResult:
     title: str
     url: str
     snippet: str
-    source: str  # "ddg" | "wikipedia" | "hn" | "arxiv"
+    source: str  # "ddg" | "wikipedia" | "hn" | "arxiv" | "bing_news" | "github" | "stackoverflow"
 
     def to_dict(self) -> dict[str, str]:
         return {"title": self.title, "url": self.url, "snippet": self.snippet, "source": self.source}
@@ -193,6 +198,70 @@ async def _search_arxiv(client: httpx.AsyncClient, query: str, n: int = 5) -> li
         return []
 
 
+async def _search_github(client: httpx.AsyncClient, query: str, n: int = 5) -> list[SearchResult]:
+    """GitHub repository search — strong signal for any technical topic.
+
+    Unauthenticated cap is 10 requests/minute per IP, which is fine for the
+    overnight loop's 1-topic-per-2min pace. README excerpts populate snippets.
+    """
+    try:
+        r = await client.get(
+            "https://api.github.com/search/repositories",
+            params={"q": query, "per_page": str(n), "sort": "stars"},
+            headers={**_BROWSER_HEADERS, "Accept": "application/vnd.github+json"},
+            timeout=15.0,
+        )
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        out: list[SearchResult] = []
+        for repo in data.get("items", [])[:n]:
+            title = repo.get("full_name") or repo.get("name") or ""
+            url = repo.get("html_url", "")
+            stars = repo.get("stargazers_count", 0)
+            desc = (repo.get("description") or "").strip()
+            snippet = f"⭐{stars} · {desc}"[:280] if desc else f"⭐{stars}"
+            if title and url:
+                out.append(SearchResult(title, url, snippet, "github"))
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
+async def _search_stackoverflow(client: httpx.AsyncClient, query: str, n: int = 5) -> list[SearchResult]:
+    """Stack Exchange API — Q&A signal for technical topics.
+
+    No key required for 300 req/day per IP. Returns top-voted matching questions
+    from the StackOverflow site. Excerpt from question body populates snippet.
+    """
+    try:
+        r = await client.get(
+            "https://api.stackexchange.com/2.3/search/advanced",
+            params={
+                "order": "desc", "sort": "votes",
+                "q": query, "site": "stackoverflow",
+                "pagesize": str(n), "filter": "withbody",
+            },
+            headers={**_BROWSER_HEADERS, "Accept": "application/json"},
+            timeout=15.0,
+        )
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        out: list[SearchResult] = []
+        for q in data.get("items", [])[:n]:
+            title = q.get("title", "")
+            url = q.get("link", "")
+            score = q.get("score", 0)
+            body = re.sub(r"<[^>]+>", " ", q.get("body", "") or "")
+            snippet = f"+{score} · {body}"[:280]
+            if title and url:
+                out.append(SearchResult(title, url, snippet, "stackoverflow"))
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
 async def _search_bing_news(client: httpx.AsyncClient, query: str, n: int = 5) -> list[SearchResult]:
     """Bing News RSS — no API key, strong coverage for current events / blog posts.
 
@@ -230,7 +299,7 @@ async def _search_bing_news(client: httpx.AsyncClient, query: str, n: int = 5) -
 
 
 async def search_multi(query: str, per_source: int = 4) -> list[SearchResult]:
-    """Fan-out search across all 5 sources in parallel. Returns interleaved
+    """Fan-out search across all 7 sources in parallel. Returns interleaved
     results so downstream chunking gets diversity even if it cuts the list short.
     """
     async with httpx.AsyncClient() as client:
@@ -240,6 +309,8 @@ async def search_multi(query: str, per_source: int = 4) -> list[SearchResult]:
             _search_hackernews(client, query, per_source),
             _search_arxiv(client, query, per_source),
             _search_bing_news(client, query, per_source),
+            _search_github(client, query, per_source),
+            _search_stackoverflow(client, query, per_source),
             return_exceptions=False,
         )
     # Interleave: take 1st from each source, then 2nd from each, etc.
