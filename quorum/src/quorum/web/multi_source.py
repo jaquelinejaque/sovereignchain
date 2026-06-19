@@ -1,14 +1,18 @@
-"""Multi-source web search — rotates across 4 endpoints to dodge throttles.
+"""Multi-source web search — rotates across 5 endpoints to dodge throttles.
 
-The overnight learner originally hit only DuckDuckGo, which throttles after
-~50 sequential queries from the same IP. That capped the knowledge-base
-growth at whatever DDG was willing to serve in one session.
+The overnight learner originally hit only DuckDuckGo, which APPEARED to throttle
+after ~50 sequential queries — actually it was returning empty pages because the
+``QuorumLearner/0.1`` User-Agent was an instant anti-bot flag. With a real
+Mozilla Chrome UA + standard browser headers, DDG behaves normally.
 
 This module fans the same query out to:
-  * DuckDuckGo Lite (existing scraper — still used opportunistically)
+  * DuckDuckGo Lite — full browser headers (Mozilla UA + Accept-* + DNT)
   * Wikipedia REST API (no key, no rate limit in practice)
   * HackerNews Algolia API (no key, no rate limit — strong tech signal)
   * arXiv API (no key, 1 request per 3 seconds courtesy rule)
+  * Bing News RSS (no key) — covers business/marketing/trend topics that the
+    other four miss (e.g. "hair salon e-commerce conversion" returned 0 from
+    the original four but multiple fresh hits from Bing News).
 
 Each source returns differently-shaped data, but we normalise to:
     [{"title": str, "url": str, "snippet": str, "source": str}, ...]
@@ -20,11 +24,9 @@ DDG results today.
 from __future__ import annotations
 
 import asyncio
-import json
 import re
 import urllib.parse
 from dataclasses import dataclass
-from typing import Any
 
 import httpx
 
@@ -40,16 +42,42 @@ class SearchResult:
         return {"title": self.title, "url": self.url, "snippet": self.snippet, "source": self.source}
 
 
-_USER_AGENT = "QuorumLearner/0.1 (+https://quorum-ai.dev)"
+_USER_AGENT = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/130.0.0.0 Safari/537.36"
+)
+_BROWSER_HEADERS = {
+    "User-Agent": _USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "DNT": "1",
+    # NOTE: deliberately omit Accept-Encoding — httpx handles gzip/br transparently
+    # and advertising it explicitly trips some anti-bot heuristics.
+}
+
+# Wikipedia's User-Agent policy is the OPPOSITE of DDG's — they actively block
+# generic browser UAs and require an identifying name + contact URL/email per
+# https://meta.wikimedia.org/wiki/User-Agent_policy. A Mozilla UA returns 403
+# with "Please respect our robot policy"; a self-identifying UA returns 200.
+_WIKI_HEADERS = {
+    "User-Agent": "Quorum/0.1 (+https://quorum-ai.dev; ops@quorum-ai.dev) httpx",
+    "Accept": "application/json",
+}
 
 
 async def _search_ddg(client: httpx.AsyncClient, query: str, n: int = 5) -> list[SearchResult]:
-    """DuckDuckGo HTML scrape — same logic as web/search.py but tolerant."""
+    """DuckDuckGo HTML scrape — same logic as web/search.py but tolerant.
+
+    Uses full browser-style headers (Mozilla UA + Accept-* + DNT) because the
+    bare ``QuorumLearner/0.1`` UA used previously was an instant anti-bot flag —
+    DDG was returning empty pages, not actually rate-limiting.
+    """
     try:
         r = await client.post(
             "https://html.duckduckgo.com/html/",
             data={"q": query},
-            headers={"User-Agent": _USER_AGENT},
+            headers=_BROWSER_HEADERS,
             timeout=15.0,
             follow_redirects=True,
         )
@@ -81,7 +109,12 @@ async def _search_ddg(client: httpx.AsyncClient, query: str, n: int = 5) -> list
 
 
 async def _search_wikipedia(client: httpx.AsyncClient, query: str, n: int = 5) -> list[SearchResult]:
-    """Wikipedia REST search — returns title + extract."""
+    """Wikipedia REST search — returns title + extract.
+
+    Wikipedia REQUIRES a self-identifying User-Agent per the Wikimedia bot policy
+    (https://meta.wikimedia.org/wiki/User-Agent_policy). Generic browser UAs are
+    actively blocked with 403 + "Please respect our robot policy".
+    """
     try:
         r = await client.get(
             "https://en.wikipedia.org/w/api.php",
@@ -89,7 +122,7 @@ async def _search_wikipedia(client: httpx.AsyncClient, query: str, n: int = 5) -
                 "action": "query", "format": "json", "list": "search",
                 "srsearch": query, "srlimit": str(n),
             },
-            headers={"User-Agent": _USER_AGENT}, timeout=15.0,
+            headers=_WIKI_HEADERS, timeout=15.0,
         )
         if r.status_code != 200:
             return []
@@ -111,7 +144,7 @@ async def _search_hackernews(client: httpx.AsyncClient, query: str, n: int = 5) 
         r = await client.get(
             "https://hn.algolia.com/api/v1/search",
             params={"query": query, "hitsPerPage": str(n), "tags": "story"},
-            headers={"User-Agent": _USER_AGENT}, timeout=15.0,
+            headers=_BROWSER_HEADERS, timeout=15.0,
         )
         if r.status_code != 200:
             return []
@@ -133,9 +166,10 @@ async def _search_arxiv(client: httpx.AsyncClient, query: str, n: int = 5) -> li
     """arXiv — scientific papers. Courtesy rate is 1 req per 3s; one call here is fine."""
     try:
         r = await client.get(
-            "http://export.arxiv.org/api/query",
+            "https://export.arxiv.org/api/query",
             params={"search_query": f"all:{query}", "max_results": str(n)},
-            headers={"User-Agent": _USER_AGENT}, timeout=15.0,
+            headers=_BROWSER_HEADERS, timeout=15.0,
+            follow_redirects=True,
         )
         if r.status_code != 200:
             return []
@@ -159,8 +193,44 @@ async def _search_arxiv(client: httpx.AsyncClient, query: str, n: int = 5) -> li
         return []
 
 
+async def _search_bing_news(client: httpx.AsyncClient, query: str, n: int = 5) -> list[SearchResult]:
+    """Bing News RSS — no API key, strong coverage for current events / blog posts.
+
+    Closes a gap left by DDG/Wikipedia/HN/arXiv: business-strategy, marketing,
+    industry-trend topics (e.g. "hair salon e-commerce conversion") return
+    nothing from the existing four sources but show up well in Bing News.
+    """
+    try:
+        r = await client.get(
+            "https://www.bing.com/news/search",
+            params={"q": query, "format": "rss"},
+            headers=_BROWSER_HEADERS, timeout=15.0,
+        )
+        if r.status_code != 200:
+            return []
+        text = r.text
+        out: list[SearchResult] = []
+        # Parse RSS items minimally (no xml lib dep)
+        for item in re.finditer(r"<item>(.*?)</item>", text, re.DOTALL):
+            body = item.group(1)
+            t = re.search(r"<title>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</title>", body, re.DOTALL)
+            l = re.search(r"<link>(.*?)</link>", body, re.DOTALL)
+            d = re.search(r"<description>(?:<!\[CDATA\[)?(.*?)(?:\]\]>)?</description>", body, re.DOTALL)
+            if t and l:
+                title = re.sub(r"<[^>]+>", "", t.group(1)).strip()
+                url = l.group(1).strip()
+                snippet = re.sub(r"<[^>]+>", "", (d.group(1) if d else "")).strip()[:280]
+                if title:
+                    out.append(SearchResult(title, url, snippet or title, "bing_news"))
+            if len(out) >= n:
+                break
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
 async def search_multi(query: str, per_source: int = 4) -> list[SearchResult]:
-    """Fan-out search across all 4 sources in parallel. Returns interleaved
+    """Fan-out search across all 5 sources in parallel. Returns interleaved
     results so downstream chunking gets diversity even if it cuts the list short.
     """
     async with httpx.AsyncClient() as client:
@@ -169,6 +239,7 @@ async def search_multi(query: str, per_source: int = 4) -> list[SearchResult]:
             _search_wikipedia(client, query, per_source),
             _search_hackernews(client, query, per_source),
             _search_arxiv(client, query, per_source),
+            _search_bing_news(client, query, per_source),
             return_exceptions=False,
         )
     # Interleave: take 1st from each source, then 2nd from each, etc.
