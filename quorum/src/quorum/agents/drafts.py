@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
 
+from quorum.agents.draft_verifier import annotate_draft, find_conflicts
 from quorum.agents.fact_sheet import build_fact_sheet, format_as_prompt_block
 from quorum.core.consensus import consensus
 from quorum.providers.registry import load_default_providers
@@ -56,6 +57,8 @@ class Draft:
     models_total: int
     cost_usd: float
     latency_ms: float
+    verification_attempts: int = 1
+    unresolved_conflicts: int = 0
     generated_at: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
@@ -82,6 +85,40 @@ class DraftBundle:
         }
 
 
+# --------- public retry harness (used by tests; thin dict wrapper around _ask_quorum_all) ---------
+
+async def regenerate_loop(
+    prompt: str,
+    fact_sheet: dict,
+    *,
+    max_attempts: int = 3,
+) -> dict:
+    """Public wrapper: run _ask_quorum_all with verification retry.
+
+    Returns a dict with at least {text, attempts, unresolved} for
+    consumer/test ergonomics; full bookkeeping (cost, latency) is also
+    included so callers don't have to re-derive them.
+    """
+    answer, confidence, ok, total, cost, latency, attempts, unresolved = (
+        await _ask_quorum_all(
+            prompt,
+            use_web=False,
+            max_attempts=max_attempts,
+            fact_sheet=fact_sheet,
+        )
+    )
+    return {
+        "text": answer,
+        "attempts": attempts,
+        "unresolved": unresolved,
+        "confidence": confidence,
+        "models_ok": ok,
+        "models_total": total,
+        "cost_usd": cost,
+        "latency_ms": latency,
+    }
+
+
 # --------- helpers ---------
 
 async def _ask_quorum_all(
@@ -89,24 +126,93 @@ async def _ask_quorum_all(
     *,
     use_web: bool = False,
     timeout_s: float = 60.0,
-) -> tuple[str, float, int, int, float, float]:
-    """Run consensus across all configured providers; return (answer, confidence, ok, total, cost, latency_ms)."""
+    max_attempts: int = 3,
+    fact_sheet: dict | None = None,
+) -> tuple[str, float, int, int, float, float, int, int]:
+    """Run consensus across all configured providers with a verification retry loop.
+
+    The loop calls `consensus`, then `find_conflicts(answer, fact_sheet)`. If
+    conflicts are found and we still have attempts left, we prepend a RETRY
+    block instructing the models to regenerate without the invented claims and
+    try again. After exhausting attempts with conflicts still present, the
+    final answer is annotated via `annotate_draft`.
+
+    Returns
+    -------
+    (answer, confidence, ok, total, cost_usd, latency_ms,
+     verification_attempts, unresolved_conflicts)
+
+    `cost_usd` is accumulated across all attempts. `latency_ms` is wall-clock
+    of all attempts. `confidence`, `ok`, `total` reflect the FINAL attempt.
+    """
     if use_web:
         ctx = search_to_context(prompt[:300], n=4)
         prompt = f"{ctx}\n\nTASK:\n{prompt}"
+
+    if fact_sheet is None:
+        fact_sheet = build_fact_sheet()
+
     providers = load_default_providers()
-    result = await consensus(
-        prompt, providers=providers, budget_usd=10.0, route=False, timeout_s=timeout_s
-    )
-    ok = sum(1 for m in result.models if not m.error)
-    total = len(result.models)
+
+    loop_start = asyncio.get_event_loop().time()
+    accumulated_cost = 0.0
+    current_prompt = prompt
+    answer = ""
+    confidence = 0.0
+    ok = 0
+    total = 0
+    conflicts: list[dict] = []
+    attempts = 0
+
+    for attempts in range(1, max_attempts + 1):
+        result = await consensus(
+            current_prompt,
+            providers=providers,
+            budget_usd=10.0,
+            route=False,
+            timeout_s=timeout_s,
+        )
+        answer = result.answer
+        confidence = result.confidence
+        ok = sum(1 for m in result.models if not m.error)
+        total = len(result.models)
+        accumulated_cost += result.total_cost_usd
+
+        conflicts = find_conflicts(answer, fact_sheet)
+        if not conflicts or attempts >= max_attempts:
+            break
+
+        retry_lines = ["RETRY -- your previous draft contained invented claims:"]
+        for c in conflicts:
+            claim = c.get("claim_text", "")
+            expected = c.get("expected_value")
+            if expected is not None:
+                retry_lines.append(
+                    f"  - '{claim}' -- DO NOT use; expected value: {expected}"
+                )
+            else:
+                retry_lines.append(
+                    f"  - '{claim}' -- DO NOT use; expected value: (not in fact_sheet)"
+                )
+        retry_lines.append("Regenerate without these inventions.")
+        retry_block = "\n".join(retry_lines)
+        current_prompt = f"{retry_block}\n\n{prompt}"
+
+    if conflicts:
+        answer = annotate_draft(answer, conflicts)
+
+    latency_ms = (asyncio.get_event_loop().time() - loop_start) * 1000.0
+    unresolved_conflicts = len(conflicts)
+
     return (
-        result.answer,
-        result.confidence,
+        answer,
+        confidence,
         ok,
         total,
-        result.total_cost_usd,
-        result.total_latency_ms,
+        accumulated_cost,
+        latency_ms,
+        attempts,
+        unresolved_conflicts,
     )
 
 
@@ -137,7 +243,9 @@ Product facts (single source of truth — do NOT invent any numbers beyond these
 {format_as_prompt_block(fact_sheet)}
 
 Write the post body ONLY. No preamble like "Here is the post:". No closing meta-commentary."""
-    answer, conf, ok, total, cost, latency = await _ask_quorum_all(prompt, use_web=use_web)
+    answer, conf, ok, total, cost, latency, attempts, conflicts = await _ask_quorum_all(
+        prompt, use_web=use_web, fact_sheet=fact_sheet
+    )
     return Draft(
         kind="linkedin",
         content=answer.strip(),
@@ -146,6 +254,8 @@ Write the post body ONLY. No preamble like "Here is the post:". No closing meta-
         models_total=total,
         cost_usd=cost,
         latency_ms=latency,
+        verification_attempts=attempts,
+        unresolved_conflicts=conflicts,
     )
 
 
@@ -170,7 +280,9 @@ Product facts (do NOT invent beyond these):
 {format_as_prompt_block(fact_sheet)}
 
 Output: just the 8 numbered tweets separated by blank lines. No preamble."""
-    answer, conf, ok, total, cost, latency = await _ask_quorum_all(prompt, use_web=use_web)
+    answer, conf, ok, total, cost, latency, attempts, conflicts = await _ask_quorum_all(
+        prompt, use_web=use_web, fact_sheet=fact_sheet
+    )
     return Draft(
         kind="twitter",
         content=answer.strip(),
@@ -179,6 +291,8 @@ Output: just the 8 numbered tweets separated by blank lines. No preamble."""
         models_total=total,
         cost_usd=cost,
         latency_ms=latency,
+        verification_attempts=attempts,
+        unresolved_conflicts=conflicts,
     )
 
 
@@ -209,7 +323,9 @@ Product facts:
 {format_as_prompt_block(fact_sheet)}
 
 Output: TITLE on first line, blank line, URL on next line, blank line, then BODY."""
-    answer, conf, ok, total, cost, latency = await _ask_quorum_all(prompt, use_web=use_web)
+    answer, conf, ok, total, cost, latency, attempts, conflicts = await _ask_quorum_all(
+        prompt, use_web=use_web, fact_sheet=fact_sheet
+    )
     return Draft(
         kind="show_hn",
         content=answer.strip(),
@@ -218,6 +334,8 @@ Output: TITLE on first line, blank line, URL on next line, blank line, then BODY
         models_total=total,
         cost_usd=cost,
         latency_ms=latency,
+        verification_attempts=attempts,
+        unresolved_conflicts=conflicts,
     )
 
 
@@ -242,7 +360,9 @@ Product facts:
 {format_as_prompt_block(fact_sheet)}
 
 Output: SUBJECT: ... on first line, blank line, then email body."""
-    answer, conf, ok, total, cost, latency = await _ask_quorum_all(prompt, use_web=use_web)
+    answer, conf, ok, total, cost, latency, attempts, conflicts = await _ask_quorum_all(
+        prompt, use_web=use_web, fact_sheet=fact_sheet
+    )
     return Draft(
         kind="email",
         content=answer.strip(),
@@ -251,6 +371,8 @@ Output: SUBJECT: ... on first line, blank line, then email body."""
         models_total=total,
         cost_usd=cost,
         latency_ms=latency,
+        verification_attempts=attempts,
+        unresolved_conflicts=conflicts,
     )
 
 
@@ -277,7 +399,9 @@ Product facts:
 {format_as_prompt_block(fact_sheet)}
 
 Output: the markdown body of the listing. No preamble."""
-    answer, conf, ok, total, cost, latency = await _ask_quorum_all(prompt, use_web=use_web)
+    answer, conf, ok, total, cost, latency, attempts, conflicts = await _ask_quorum_all(
+        prompt, use_web=use_web, fact_sheet=fact_sheet
+    )
     return Draft(
         kind="vscode_listing",
         content=answer.strip(),
@@ -286,6 +410,8 @@ Output: the markdown body of the listing. No preamble."""
         models_total=total,
         cost_usd=cost,
         latency_ms=latency,
+        verification_attempts=attempts,
+        unresolved_conflicts=conflicts,
     )
 
 
@@ -355,7 +481,9 @@ async def sell_quorum(
         f"Total cost (parallel run): ${total_cost:.4f}  · "
         f"Wall-clock: {total_latency:.0f}ms\n\n"
         + "\n".join(f"- [{k}]({k}.md) ({d.models_ok}/{d.models_total} OK, "
-                   f"{d.confidence:.0%} conf, ${d.cost_usd:.4f})"
+                   f"{d.confidence:.0%} conf, ${d.cost_usd:.4f}, "
+                   f"{d.unresolved_conflicts} unresolved conflicts after "
+                   f"{d.verification_attempts} attempts)"
                    for k, d in zip(keys, final))
         + "\n\nReview each draft. Approve, edit, or regenerate before publishing.\n"
         + "Nothing has been published. All drafts are local.\n"
