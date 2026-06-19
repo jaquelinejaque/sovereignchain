@@ -182,6 +182,29 @@ async def search_multi(query: str, per_source: int = 4) -> list[SearchResult]:
 
 
 def search_multi_sync(query: str, per_source: int = 4) -> list[dict[str, str]]:
-    """Sync wrapper. Returns dicts so it works from non-async callers."""
-    results = asyncio.run(search_multi(query, per_source))
+    """Sync wrapper. Returns dicts so it works from non-async callers.
+
+    Safe to call from inside an already-running event loop: detects that
+    case and runs the coroutine in a worker thread. Without this, calling
+    asyncio.run() from inside an active loop raises
+    'asyncio.run() cannot be called from a running event loop' and leaves
+    the coroutine in the 'never awaited' state — exactly the bug that
+    caused draft show-hn to produce empty output in autopilot.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No loop active in this thread — safe to use asyncio.run directly.
+        results = asyncio.run(search_multi(query, per_source))
+        return [r.to_dict() for r in results]
+
+    # An event loop is already running here — run the coroutine in a
+    # detached thread that owns its own loop, then block on the result.
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            lambda: asyncio.run(search_multi(query, per_source))
+        )
+        results = future.result()
     return [r.to_dict() for r in results]
