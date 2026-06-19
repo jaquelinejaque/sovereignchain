@@ -1,4 +1,4 @@
-"""Multi-source web search — fans out across 7 endpoints for breadth + redundancy.
+"""Multi-source web search — fans out across 8 endpoints for breadth + redundancy.
 
 The overnight learner originally hit only DuckDuckGo, which APPEARED to throttle
 after ~50 sequential queries — actually it was returning empty pages because the
@@ -13,6 +13,8 @@ This module fans the same query out to:
   * Bing News RSS (no key) — covers business/marketing/trend topics that the
     other four miss (e.g. "hair salon e-commerce conversion" returned 0 from
     the original four but multiple fresh hits from Bing News).
+  * Google News RSS (no key) — HIGHEST-yield single source: ~100 items per
+    query across 50,000+ publishers. Should typically saturate per_source.
   * GitHub Search API (no auth, 10 req/min) — strong tech repo signal.
   * Stack Exchange API (no key, 300/day) — Q&A on technical topics.
 
@@ -41,7 +43,7 @@ class SearchResult:
     title: str
     url: str
     snippet: str
-    source: str  # "ddg" | "wikipedia" | "hn" | "arxiv" | "bing_news" | "github" | "stackoverflow"
+    source: str  # "ddg" | "wikipedia" | "hn" | "arxiv" | "bing_news" | "google_news" | "github" | "stackoverflow"
 
     def to_dict(self) -> dict[str, str]:
         return {"title": self.title, "url": self.url, "snippet": self.snippet, "source": self.source}
@@ -262,6 +264,42 @@ async def _search_stackoverflow(client: httpx.AsyncClient, query: str, n: int = 
         return []
 
 
+async def _search_google_news(client: httpx.AsyncClient, query: str, n: int = 5) -> list[SearchResult]:
+    """Google News RSS — no key, no signup, ~100 items per query.
+
+    By far the highest-yield source — Google News indexes 50,000+ publishers
+    and a single query returns ~100 RSS items vs Bing News's 1-4. The redirect
+    URLs are intentionally opaque (news.google.com/rss/articles/...) but the
+    title + description give enough signal for the embedding pass downstream.
+    """
+    try:
+        r = await client.get(
+            "https://news.google.com/rss/search",
+            params={"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"},
+            headers=_BROWSER_HEADERS, timeout=15.0,
+        )
+        if r.status_code != 200:
+            return []
+        text = r.text
+        out: list[SearchResult] = []
+        for item in re.finditer(r"<item>(.*?)</item>", text, re.DOTALL):
+            body = item.group(1)
+            t = re.search(r"<title>(.*?)</title>", body, re.DOTALL)
+            l = re.search(r"<link>(.*?)</link>", body, re.DOTALL)
+            d = re.search(r"<description>(.*?)</description>", body, re.DOTALL)
+            if t and l:
+                title = re.sub(r"<[^>]+>", "", t.group(1)).strip()
+                url = l.group(1).strip()
+                snippet = re.sub(r"<[^>]+>", "", (d.group(1) if d else "")).strip()[:280]
+                if title:
+                    out.append(SearchResult(title, url, snippet or title, "google_news"))
+            if len(out) >= n:
+                break
+        return out
+    except Exception:  # noqa: BLE001
+        return []
+
+
 async def _search_bing_news(client: httpx.AsyncClient, query: str, n: int = 5) -> list[SearchResult]:
     """Bing News RSS — no API key, strong coverage for current events / blog posts.
 
@@ -299,7 +337,7 @@ async def _search_bing_news(client: httpx.AsyncClient, query: str, n: int = 5) -
 
 
 async def search_multi(query: str, per_source: int = 4) -> list[SearchResult]:
-    """Fan-out search across all 7 sources in parallel. Returns interleaved
+    """Fan-out search across all 8 sources in parallel. Returns interleaved
     results so downstream chunking gets diversity even if it cuts the list short.
     """
     async with httpx.AsyncClient() as client:
@@ -309,6 +347,7 @@ async def search_multi(query: str, per_source: int = 4) -> list[SearchResult]:
             _search_hackernews(client, query, per_source),
             _search_arxiv(client, query, per_source),
             _search_bing_news(client, query, per_source),
+            _search_google_news(client, query, per_source),
             _search_github(client, query, per_source),
             _search_stackoverflow(client, query, per_source),
             return_exceptions=False,
