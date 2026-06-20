@@ -38,6 +38,25 @@ class Provider(ABC):
     name: str
 
     @abstractmethod
-    async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
-        """Run a single completion. Must return a ModelResponse, never raise."""
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 800,
+        system_prompt: str | None = None,
+        **kwargs,
+    ) -> ModelResponse:
+        """Run a single completion. Must return a ModelResponse, never raise.
+
+        Args:
+            prompt: User-facing message content.
+            max_tokens: Hard cap on output tokens.
+            system_prompt: Optional system instruction (Layer 1 of the
+                SelfPromptOptimizer wiring). Providers that natively support
+                system prompts (Anthropic/OpenAI/Gemini) inject it via the
+                appropriate provider-specific channel. Providers without
+                native support silently ignore it via ``**kwargs`` to keep
+                backwards compatibility — no caller is forced to know which
+                providers honour the field.
+        """
         raise NotImplementedError

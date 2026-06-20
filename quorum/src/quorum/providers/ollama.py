@@ -23,7 +23,7 @@ class OllamaProvider(Provider):
         # Other models surface as ollama:<model> so they get their own evolution row.
         self.name = name or ("llama-local" if model.startswith("llama3.2") else f"ollama:{model}")
 
-    async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
+    async def complete(self, prompt: str, *, max_tokens: int = 800, **kwargs) -> ModelResponse:
         payload = {
             "model": self.model,
             "prompt": prompt,

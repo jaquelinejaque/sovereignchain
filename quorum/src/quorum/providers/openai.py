@@ -28,7 +28,14 @@ class OpenAIProvider(Provider):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY", "")
         self.name = model
 
-    async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 800,
+        system_prompt: str | None = None,
+        **kwargs,
+    ) -> ModelResponse:
         try:
             if not self.api_key:
                 return ModelResponse(name=self.name, response="", error="no_api_key")
@@ -37,11 +44,23 @@ class OpenAIProvider(Provider):
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
             }
-            # GPT-5 family rejects `max_tokens`; expects `max_completion_tokens`.
+            images = kwargs.get("images", [])
+            content = [{"type": "text", "text": prompt}]
+            if images:
+                for img in images:
+                    content.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img}"}})
+
+            # OpenAI Chat Completions: system prompt is a regular message with
+            # role='system', prepended before the user turn.
+            messages: list[dict[str, Any]] = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": content})
+
             tokens_field = "max_completion_tokens" if self.model.startswith("gpt-5") else "max_tokens"
             payload: dict[str, Any] = {
                 "model": self.model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": messages,
                 tokens_field: max_tokens,
             }
 

@@ -25,7 +25,7 @@ class GrokProvider(Provider):
         self.api_key = api_key or os.getenv("XAI_API_KEY", "")
         self.name = model
 
-    async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
+    async def complete(self, prompt: str, *, max_tokens: int = 800, **kwargs) -> ModelResponse:
         try:
             if not self.api_key:
                 return ModelResponse(name=self.name, response="", error="no_api_key")

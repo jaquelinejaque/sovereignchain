@@ -86,6 +86,14 @@ class ConsensusResult:
     embedding_confidence: float = 0.0
     """Semantic-agreement score from embedding cosine (replaces Jaccard)."""
 
+    scoring_method: str = "embedding"
+    """Which agreement scorer produced ``confidence``: 'embedding' = cosine
+    over semantic vectors (cross-vocabulary, default); 'jaccard' = lexical
+    token overlap fallback used only when no embedder is reachable. Callers
+    that gate on semantic agreement MUST check this — Jaccard scores are
+    NOT comparable across vocabularies and will mark unrelated paraphrases
+    as low-agreement."""
+
     router_used: list[str] = field(default_factory=list)
     """Provider names the MoE router selected for this query."""
 
@@ -110,6 +118,7 @@ class ConsensusResult:
             "rlhf_weights_applied": {
                 k: round(v, 4) for k, v in self.rlhf_weights_applied.items()
             },
+            "scoring_method": self.scoring_method,
         }
 
 
@@ -158,8 +167,16 @@ async def _route_providers(
 
 async def _score_semantic(
     valid: list[ModelResponse],
-) -> tuple[float, list[float], list[tuple[int, int, float]]]:
-    """Embed-and-score; fall back to the legacy Jaccard if embedder is absent."""
+) -> tuple[float, list[float], list[tuple[int, int, float]], str]:
+    """Embed-and-score; fall back to the legacy Jaccard if embedder is absent.
+
+    Returns ``(confidence, weights, pairs, scoring_method)`` where
+    ``scoring_method`` is ``"embedding"`` on the happy path or ``"jaccard"``
+    when any fallback triggers. Callers MUST propagate the method into
+    ``ConsensusResult.scoring_method`` so downstream consumers can detect
+    degraded scoring and react (e.g. raise an alarm, refuse to gate on the
+    score, retry later).
+    """
     try:
         from quorum.core.embeddings import (
             EmbeddingProvider,
@@ -167,13 +184,23 @@ async def _score_semantic(
             semantic_agreement,
         )
     except Exception as e:  # noqa: BLE001
-        logger.warning("embeddings module unavailable (%s); falling back", e)
+        logger.error(
+            "DEGRADED SCORING: embeddings module unavailable (%s); "
+            "using Jaccard lexical fallback — agreement score is NOT "
+            "semantic and should not be compared to embedding scores",
+            e,
+        )
         return _jaccard_fallback(valid)
 
     try:
         embedder = EmbeddingProvider.from_env()
     except Exception as e:  # noqa: BLE001
-        logger.warning("no embedding backend (%s); using Jaccard", e)
+        logger.error(
+            "DEGRADED SCORING: no embedding backend (%s); using Jaccard "
+            "lexical fallback — set GOOGLE_API_KEY / OPENAI_API_KEY / "
+            "OLLAMA_HOST to restore semantic scoring",
+            e,
+        )
         return _jaccard_fallback(valid)
 
     try:
@@ -187,22 +214,31 @@ async def _score_semantic(
             # Embedder backends can fail mid-call (HTTP 429 quota, 5xx, network).
             # Without this guard the entire consensus crashes; fall back to
             # Jaccard so the caller still gets a usable answer.
-            logger.warning("embedding call failed (%s); falling back to Jaccard", e)
+            logger.error(
+                "DEGRADED SCORING: embedding call failed mid-flight (%s); "
+                "using Jaccard lexical fallback for this query — score is "
+                "NOT semantic, check embedder quota / health",
+                e,
+            )
             return _jaccard_fallback(valid)
     finally:
         await embedder.aclose()
-    return confidence, weights, pairs
+    return confidence, weights, pairs, "embedding"
 
 
 def _jaccard_fallback(
     valid: list[ModelResponse],
-) -> tuple[float, list[float], list[tuple[int, int, float]]]:
+) -> tuple[float, list[float], list[tuple[int, int, float]], str]:
     """Last-resort lexical scoring when embeddings are unreachable.
 
-    Identical to the v0.0.1 logic. Worse than embeddings but never crashes.
+    Returns the same shape as :func:`_score_semantic` with
+    ``scoring_method="jaccard"`` so callers can distinguish a semantic
+    score (cross-vocabulary, [0,1] cosine) from a lexical one (token
+    overlap, fails on paraphrases). Identical to the v0.0.1 logic
+    otherwise — worse than embeddings but never crashes.
     """
     if len(valid) == 1:
-        return 1.0, [1.0], []
+        return 1.0, [1.0], [], "jaccard"
     sets = [set(r.response.lower().split()) for r in valid]
     n = len(valid)
     sims: list[list[float]] = [[0.0] * n for _ in range(n)]
@@ -219,7 +255,7 @@ def _jaccard_fallback(
     confidence = sum(pairs_flat) / len(pairs_flat) if pairs_flat else 1.0
     disagree = [(i, j, sims[i][j]) for i in range(n) for j in range(i + 1, n) if sims[i][j] < 0.5]
     disagree.sort(key=lambda t: t[2])
-    return confidence, weights, disagree
+    return confidence, weights, disagree, "jaccard"
 
 
 async def _apply_rlhf_and_hebbian(
@@ -228,21 +264,36 @@ async def _apply_rlhf_and_hebbian(
     user_id: str | None,
     query_class: str,
     confidence: float,
+    enabled_loops: set[str] | None = None,
 ) -> tuple[list[float], dict[str, float], float]:
     """Multiply RLHF prior + Hebbian pair-boost into each model's weight.
 
     Returns ``(new_weights, rlhf_applied, mean_hebbian_boost)``. Any sub-loop
     that errors degrades to identity (no change to weights). Records the
     round in HebbianMatrix as a side effect so co-activation learns online.
+
+    ``enabled_loops`` is the meta-learner enforcement set; if a loop name
+    is absent, that sub-section becomes a no-op (its multiplier stays at
+    identity). ``None`` means "no enforcement — run everything" so existing
+    callers and tests are unaffected. The adversarial-probe path is
+    STRUCTURAL and always runs regardless of enforcement.
     """
+    # Default: no enforcement — preserve historical behaviour for callers
+    # that haven't been migrated yet (e.g. unit tests calling this helper
+    # directly).
+    if enabled_loops is None:
+        enabled_loops = {"rlhf", "hebbian"}
+
     rlhf_map: dict[str, float] = {}
-    if user_id:
+    if user_id and "rlhf" in enabled_loops:
         try:
             from quorum.evolution.rlhf import RLHFTracker
             tracker = RLHFTracker()
             rlhf_map = await tracker.get_weights(user_id, query_class)
         except Exception as e:  # noqa: BLE001
             logger.debug("RLHF read failed (%s); skipping", e)
+    elif user_id:
+        logger.info("meta: skipped rlhf for class=%s", query_class)
 
     # Hebbian: query pair boosts and update the matrix from this round.
     # We run *both* engines:
@@ -253,53 +304,56 @@ async def _apply_rlhf_and_hebbian(
     # call is never broken by a Hebbian outage.
     mean_boost = 1.0
     pair_boosts: dict[tuple[str, str], float] = {}
-    try:
-        from quorum.evolution.hebbian import HebbianMatrix
-        matrix = HebbianMatrix()
-        names = [r.name for r in valid]
-        pair_sims: dict[tuple[str, str], float] = {}
-        boost_vals: list[float] = []
-        for i in range(len(names)):
-            for j in range(i + 1, len(names)):
-                b = await matrix.get_pair_boost(names[i], names[j])
-                pair_boosts[(names[i], names[j])] = b
-                # Re-use the embedding confidence as a per-pair similarity
-                # proxy (cheap; the per-pair matrix already lives inside
-                # extract_disagreement_pairs but we don't carry it here).
-                pair_sims[(names[i], names[j])] = confidence
-                boost_vals.append(b)
-        if boost_vals:
-            mean_boost = sum(boost_vals) / len(boost_vals)
+    if "hebbian" in enabled_loops:
+        try:
+            from quorum.evolution.hebbian import HebbianMatrix
+            matrix = HebbianMatrix()
+            names = [r.name for r in valid]
+            pair_sims: dict[tuple[str, str], float] = {}
+            boost_vals: list[float] = []
+            for i in range(len(names)):
+                for j in range(i + 1, len(names)):
+                    b = await matrix.get_pair_boost(names[i], names[j])
+                    pair_boosts[(names[i], names[j])] = b
+                    # Re-use the embedding confidence as a per-pair similarity
+                    # proxy (cheap; the per-pair matrix already lives inside
+                    # extract_disagreement_pairs but we don't carry it here).
+                    pair_sims[(names[i], names[j])] = confidence
+                    boost_vals.append(b)
+            if boost_vals:
+                mean_boost = sum(boost_vals) / len(boost_vals)
 
-        # Online learning: record the round so future calls benefit.
-        await matrix.record_round(valid, pair_sims, reward=confidence)
-    except Exception as e:  # noqa: BLE001
-        logger.debug("Hebbian matrix path skipped (%s)", e)
+            # Online learning: record the round so future calls benefit.
+            await matrix.record_round(valid, pair_sims, reward=confidence)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("Hebbian matrix path skipped (%s)", e)
 
-    # HebbianStore (per-class EMA) — multiplicatively layered on top of
-    # HebbianMatrix.  observe() always runs (so the EMA learns from this
-    # round) but boost() returns 1.0 until SAMPLE_THRESHOLD is reached, so
-    # cold-start is safe.
-    try:
-        from quorum.evolution.hebbian import _get_default_store
-        store = await _get_default_store()
-        names = [r.name for r in valid]
-        store_vals: list[float] = []
-        for i in range(len(names)):
-            for j in range(i + 1, len(names)):
-                sb = await store.boost(names[i], names[j], query_class)
-                key = (names[i], names[j])
-                # Compose multiplicatively with the existing matrix boost.
-                pair_boosts[key] = pair_boosts.get(key, 1.0) * sb
-                store_vals.append(sb)
-        if store_vals:
-            store_mean = sum(store_vals) / len(store_vals)
-            mean_boost = mean_boost * store_mean
-        # Observe AFTER reading boost so the value we just applied was a
-        # genuine prior, not contaminated by the round we're scoring.
-        await store.observe(query_class, valid)
-    except Exception as e:  # noqa: BLE001
-        logger.debug("HebbianStore path skipped (%s)", e)
+        # HebbianStore (per-class EMA) — multiplicatively layered on top of
+        # HebbianMatrix.  observe() always runs (so the EMA learns from this
+        # round) but boost() returns 1.0 until SAMPLE_THRESHOLD is reached, so
+        # cold-start is safe.
+        try:
+            from quorum.evolution.hebbian import _get_default_store
+            store = await _get_default_store()
+            names = [r.name for r in valid]
+            store_vals: list[float] = []
+            for i in range(len(names)):
+                for j in range(i + 1, len(names)):
+                    sb = await store.boost(names[i], names[j], query_class)
+                    key = (names[i], names[j])
+                    # Compose multiplicatively with the existing matrix boost.
+                    pair_boosts[key] = pair_boosts.get(key, 1.0) * sb
+                    store_vals.append(sb)
+            if store_vals:
+                store_mean = sum(store_vals) / len(store_vals)
+                mean_boost = mean_boost * store_mean
+            # Observe AFTER reading boost so the value we just applied was a
+            # genuine prior, not contaminated by the round we're scoring.
+            await store.observe(query_class, valid)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("HebbianStore path skipped (%s)", e)
+    else:
+        logger.info("meta: skipped hebbian for class=%s", query_class)
 
     # Adversarial-probe penalty: drop the weight of models that have
     # demonstrably fallen for known attacks recently. Best-effort, fully
@@ -484,34 +538,90 @@ async def consensus(
     else:
         selected, router_names, query_class = list(providers), [], "general"
 
-    # Loop 6 — Meta-learning hint: ask the meta-learner which evolution
-    # loops it currently believes are worth firing for this query_class.
-    # Stored locally as ``_meta_recommended`` so future patches can gate
-    # sibling loops; today it is observational (logged only) so this
-    # wire-in is risk-free and unit-testable in isolation.
+    # Loop 6 — Meta-learning ENFORCEMENT (was logged-only — BUG #2 fix).
+    # ``recommend_loops_async`` returns the subset of OPTIONAL loops that
+    # the learner currently judges worth firing for this ``query_class``.
+    # ``router`` is structural and never gated. ``rlhf``, ``hebbian``,
+    # ``memory`` and ``self_prompt`` are opt-out based on learned per-class
+    # effectiveness. Cold-start safe: empty/missing history defaults to
+    # all loops on; any exception falls back to all loops on.
+    #
+    # NOTE on ``memory``: the *retrieve* path (lines ~468-478) runs BEFORE
+    # ``query_class`` is known, so it cannot be gated here. Only the
+    # *ingest* path (post-consensus) is enforced. This is intentional —
+    # retrieval is cheap and helps cold-class bootstrap.
+    _OPTIONAL_LOOPS = ("rlhf", "hebbian", "memory", "self_prompt")
+    _meta_enabled: set[str] = set(_OPTIONAL_LOOPS)  # cold-start default: all on
     try:
         from quorum.evolution.meta import MetaLearner
 
-        _meta_recommended = await MetaLearner().recommend_loops_async(
+        recommended = await MetaLearner().recommend_loops_async(
             query_class,
-            candidate_loops=["router", "rlhf", "hebbian", "memory"],
+            candidate_loops=list(_OPTIONAL_LOOPS),
         )
-        logger.debug(
-            "meta.recommend_loops class=%s -> %s", query_class, _meta_recommended
+        # Only narrow if the learner returned something non-empty — an
+        # empty list means "no opinion", not "disable everything".
+        if recommended:
+            _meta_enabled = set(recommended) & set(_OPTIONAL_LOOPS)
+        logger.info(  # promoted from .debug so enforcement is visible
+            "meta.enforce class=%s enabled=%s skipped=%s",
+            query_class,
+            sorted(_meta_enabled),
+            sorted(set(_OPTIONAL_LOOPS) - _meta_enabled),
         )
     except Exception as e:  # noqa: BLE001
-        logger.debug("meta.recommend_loops skipped (%s)", e)
+        logger.debug(
+            "meta.enforce skipped (%s); defaulting to all loops on", e
+        )
 
     semaphore = asyncio.Semaphore(max_concurrency)
+
+    # Camada 1 — SelfPromptOptimizer wiring (BEFORE fan-out).
+    # For each provider in the selected ensemble, look up the current
+    # bandit-champion template via `get_current_prompt(model_name=p.name)`
+    # and inject it as the `system_prompt` of that provider's call. This
+    # is the "system prompt evolves per-model" path; the retry loop below
+    # (which uses `champion.prompt_template` as a USER-prompt rewrite) is
+    # the orthogonal "rewrite user prompt on disagreement" path.
+    #
+    # Failure mode: any error during lookup must NOT break the consensus
+    # call. We fall back to no system prompt for the affected provider.
+    # Cost: one cheap sqlite read per provider, off the event loop via
+    # `asyncio.to_thread` inside `get_current_prompt`.
+    system_prompts: dict[str, str] = {}
+    if enable_self_prompt and "self_prompt" in _meta_enabled:
+        try:
+            from quorum.evolution.self_prompt import SelfPromptOptimizer
+            _optimizer = SelfPromptOptimizer()
+            for _p in selected:
+                try:
+                    tpl = await _optimizer.get_current_prompt(_p.name)
+                    if tpl:
+                        system_prompts[_p.name] = tpl
+                except Exception as _e:  # noqa: BLE001
+                    logger.debug(
+                        "self_prompt.layer1: get_current_prompt failed "
+                        "for %s (%s); no system prompt injected", _p.name, _e,
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.debug(
+                "self_prompt.layer1: SelfPromptOptimizer init failed (%s); "
+                "fan-out will run without per-provider system prompts", e,
+            )
 
     async def _call(p: Provider) -> ModelResponse:
         async with semaphore:
             t0 = time.perf_counter()
             try:
+                call_kwargs: dict[str, Any] = {}
                 if images:
-                    resp = await asyncio.wait_for(p.complete(prompt, images=images), timeout=timeout_s)
-                else:
-                    resp = await asyncio.wait_for(p.complete(prompt), timeout=timeout_s)
+                    call_kwargs["images"] = images
+                sp = system_prompts.get(p.name)
+                if sp:
+                    call_kwargs["system_prompt"] = sp
+                resp = await asyncio.wait_for(
+                    p.complete(prompt, **call_kwargs), timeout=timeout_s
+                )
             except asyncio.TimeoutError:
                 return ModelResponse(
                     name=p.name, response="", error="timeout",
@@ -538,7 +648,7 @@ async def consensus(
             total_latency_ms=(time.perf_counter() - t_start) * 1000,
         )
 
-    confidence, base_weights, disagree_pairs = await _score_semantic(valid)
+    confidence, base_weights, disagree_pairs, scoring_method = await _score_semantic(valid)
 
     # Loop 11 — Self-prompting retry. If the first pass came back with
     # low semantic agreement we ask the strongest available model to
@@ -548,11 +658,14 @@ async def consensus(
     # rather than replace, and never overwrite the original responses
     # — we replace `valid` only if the new pass returned anything usable.
     self_prompt_fired = False
-    if enable_self_prompt:
+    if enable_self_prompt and "self_prompt" not in _meta_enabled:
+        logger.info("meta: skipped self_prompt for class=%s", query_class)
+    if enable_self_prompt and "self_prompt" in _meta_enabled:
         try:
             from quorum.evolution.self_prompt import (
                 DEFAULT_REWRITE_CONFIDENCE_THRESHOLD,
                 PromptRewriter,
+                SelfPromptOptimizer,
             )
             threshold = (
                 self_prompt_threshold
@@ -560,12 +673,47 @@ async def consensus(
                 else DEFAULT_REWRITE_CONFIDENCE_THRESHOLD
             )
             if confidence < threshold:
+                # BUG #1 FIX — Hierarchical fallback:
+                # Camada 1) SelfPromptOptimizer (bandit Bayesiano persistente):
+                #   se existir variant ATIVA pra `query_class` (cold-start
+                #   detectado via list_variants — get_current_prompt sozinho
+                #   auto-seeda e mascararia o cold-start), usa o template
+                #   campeão como rewrite. Memória cross-query, evolução real.
+                # Camada 2) PromptRewriter (clarification reativa, original):
+                #   fallback se optimizer não tem variants OU se qualquer
+                #   coisa falhar. Caminho seguro/testado preservado.
+                # Camada 3) record_outcome após o retry — fecha o loop bandit.
+                rewritten_prompt = None
+                optimizer_variant_id: str | None = None
+                try:
+                    optimizer = SelfPromptOptimizer()
+                    existing_variants = await optimizer.list_variants(
+                        query_class
+                    )
+                    if existing_variants:
+                        champion = existing_variants[0]
+                        rewritten_prompt = champion.prompt_template
+                        optimizer_variant_id = champion.id
+                        logger.debug(
+                            "self_prompt: using optimizer champion "
+                            "model=%s variant_id=%s avg_reward=%.3f",
+                            query_class, champion.id, champion.avg_reward,
+                        )
+                except Exception as e:  # noqa: BLE001
+                    logger.debug(
+                        "self_prompt: optimizer path skipped (%s); "
+                        "falling back to PromptRewriter", e,
+                    )
+                    rewritten_prompt = None
+                    optimizer_variant_id = None
+
                 rewriter = self_prompt_rewriter or PromptRewriter(
                     confidence_threshold=threshold
                 )
-                rewritten_prompt = await rewriter.rewrite(
-                    prompt, confidence, query_class
-                )
+                if rewritten_prompt is None:
+                    rewritten_prompt = await rewriter.rewrite(
+                        prompt, confidence, query_class
+                    )
                 if rewritten_prompt:
                     # Re-run the same selected providers on the rewritten
                     # prompt. We do NOT re-route — the same ensemble that
@@ -578,7 +726,7 @@ async def consensus(
                         r for r in retry_responses if r.response and not r.error
                     ]
                     if retry_valid:
-                        new_confidence, new_base_weights, new_disagree_pairs = (
+                        new_confidence, new_base_weights, new_disagree_pairs, new_scoring_method = (
                             await _score_semantic(retry_valid)
                         )
                         # Persist the delta unconditionally so the meta-
@@ -600,6 +748,22 @@ async def consensus(
                             logger.debug(
                                 "self_prompt: log_rewrite skipped (%s)", e
                             )
+                        # Camada 3 — close the bandit loop. Only if the
+                        # rewrite came from the optimizer (not from the
+                        # PromptRewriter fallback). Reward = delta de
+                        # confidence; positivo aumenta avg_reward do
+                        # champion, negativo demove-o pra próximo retry.
+                        if optimizer_variant_id is not None:
+                            try:
+                                reward = float(new_confidence - confidence)
+                                await optimizer.record_outcome(
+                                    optimizer_variant_id, reward=reward
+                                )
+                            except Exception as e:  # noqa: BLE001
+                                logger.debug(
+                                    "self_prompt: record_outcome skipped "
+                                    "(%s)", e,
+                                )
                         # Only adopt the rewrite if it actually improved
                         # confidence — otherwise the original ensemble
                         # response is the safer bet.
@@ -609,12 +773,18 @@ async def consensus(
                             confidence = new_confidence
                             base_weights = new_base_weights
                             disagree_pairs = new_disagree_pairs
+                            scoring_method = new_scoring_method
                             self_prompt_fired = True
         except Exception as e:  # noqa: BLE001
             logger.debug("self_prompt loop skipped (%s)", e)
 
     new_weights, rlhf_applied, hebbian_mean = await _apply_rlhf_and_hebbian(
-        valid, base_weights, user_id, query_class, confidence
+        valid,
+        base_weights,
+        user_id,
+        query_class,
+        confidence,
+        enabled_loops=_meta_enabled,
     )
 
     for r, w in zip(valid, new_weights):
@@ -628,7 +798,11 @@ async def consensus(
     seen: set[str] = set()
     disagreements = [n for n in disagreements if not (n in seen or seen.add(n))]
 
-    memory_fired = await _ingest_memory(user_id, prompt, canonical.response)
+    if "memory" in _meta_enabled:
+        memory_fired = await _ingest_memory(user_id, prompt, canonical.response)
+    else:
+        logger.info("meta: skipped memory for class=%s", query_class)
+        memory_fired = False
     competition_fired = await _record_competition(
         valid, canonical.response, query_class
     )
@@ -657,10 +831,61 @@ async def consensus(
     except Exception as e:  # noqa: BLE001
         logger.debug("meta.observe skipped (%s)", e)
 
+    # SelfPromptOptimizer always-on bandit signal capture (SIMPLE path).
+    # Camada 3 above only fires inside the self-prompt retry block (i.e.
+    # only when confidence < threshold AND the optimizer's champion was
+    # actually used as the rewrite). That means the bandit never sees the
+    # common case — high-confidence calls where no retry was needed — so
+    # it has no way to learn that the current champion template is
+    # *staying* good. This block closes that hole: on EVERY consensus
+    # call, ask the optimizer for the active champion of this query_class
+    # (auto-seeds the row on first read, so cold-start is safe) and feed
+    # the final consensus confidence in as the reward signal. No per-
+    # provider variant_id threading, no ModelResponse mutation, no extra
+    # LLM call (get_current_prompt is a single SQLite read). When the
+    # self-prompt retry already recorded an outcome on the same variant
+    # the two signals stack via the incremental-mean update in
+    # record_outcome — that is the desired behaviour (more samples =
+    # tighter posterior). Best-effort: any failure here MUST NOT block
+    # the response path.
+    #
+    # Meta-enforcement: gated on "self_prompt" alongside the other two
+    # self-prompt call sites (system-prompt injection and rewriter retry).
+    # If the meta-learner decided this query_class doesn't benefit from
+    # the self-prompt loop, we skip the bandit signal capture too —
+    # otherwise we'd be feeding rewards into a champion the consensus
+    # call never actually used, polluting the bandit's posterior.
+    if "self_prompt" in _meta_enabled:
+        try:
+            from quorum.evolution.self_prompt import SelfPromptOptimizer
+
+            _opt = SelfPromptOptimizer()
+            _variants = await _opt.list_variants(query_class)
+            if _variants:
+                # list_variants is sorted champion-first (avg_reward DESC,
+                # samples DESC) so [0] is the same variant get_current_prompt
+                # would have returned — no extra DB round-trip needed.
+                await _opt.record_outcome(_variants[0].id, reward=float(confidence))
+            else:
+                # No row yet for this class — seed via get_current_prompt so
+                # the NEXT call's list_variants finds something to score.
+                # We don't record on the freshly seeded row because we have
+                # no evidence it caused this round's confidence (the round
+                # ran on the user's literal prompt, not on any template).
+                await _opt.get_current_prompt(query_class)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("self_prompt.record_outcome (always-on) skipped (%s)", e)
+    else:
+        logger.info(
+            "meta: skipped self_prompt (always-on bandit) for class=%s",
+            query_class,
+        )
+
     result = ConsensusResult(
         answer=canonical.response,
         confidence=confidence,
-        embedding_confidence=confidence,
+        embedding_confidence=confidence if scoring_method == "embedding" else 0.0,
+        scoring_method=scoring_method,
         models=responses,
         disagreements=disagreements,
         evolution_signals=evolution_signals,

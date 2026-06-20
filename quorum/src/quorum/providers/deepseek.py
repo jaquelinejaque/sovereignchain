@@ -27,7 +27,7 @@ class DeepSeekProvider(Provider):
         self.api_key = api_key or os.getenv("DEEPSEEK_API_KEY", "")
         self.name = f"deepseek-{model.split('-', 1)[-1]}"
 
-    async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
+    async def complete(self, prompt: str, *, max_tokens: int = 800, **kwargs) -> ModelResponse:
         try:
             if not self.api_key:
                 return ModelResponse(name=self.name, response="", error="no_api_key")

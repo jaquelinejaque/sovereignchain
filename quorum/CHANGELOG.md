@@ -2,6 +2,19 @@
 
 All notable changes to Quorum are documented here. Format loosely follows Keep-a-Changelog; versioning follows SemVer.
 
+## 0.2.2 — Transparency + behaviour parity (2026-06-20)
+
+### Transparency (CRITICAL)
+- ConsensusResult exposes scoring_method ("embedding"|"jaccard"); Jaccard fallback logs at ERROR. Callers can detect degraded scoring.
+
+### Behaviour parity (marketing matches code)
+- SelfPromptOptimizer wired into hot path as system_prompt per provider (was dead code). "Self-prompt evolution" now genuinely runs.
+- Meta-loop enforcement: loops with priority < 0.1 are SKIPPED for that query (was logged-only). "Loops learn which loops work" now genuinely acts.
+
+### Backwards compatible
+- scoring_method defaults "embedding"; existing callers unchanged.
+- Provider.complete() new system_prompt param defaults None.
+
 ## 0.2.1 — Security patch (2026-06-20)
 
 ### Critical

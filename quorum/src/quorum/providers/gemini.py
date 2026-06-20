@@ -25,7 +25,14 @@ class GeminiProvider(Provider):
             or ""
         )
 
-    async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 800,
+        system_prompt: str | None = None,
+        **kwargs,
+    ) -> ModelResponse:
         if not self.api_key:
             return ModelResponse(name=self.name, response="", error="no_api_key")
 
@@ -33,10 +40,24 @@ class GeminiProvider(Provider):
             f"https://generativelanguage.googleapis.com/v1beta/models/"
             f"{self.model}:generateContent"
         )
+        images = kwargs.get("images", [])
+        parts = [{"text": prompt}]
+        if images:
+            for img in images:
+                parts.append({
+                    "inlineData": {
+                        "mimeType": "image/jpeg",
+                        "data": img
+                    }
+                })
+
         payload: dict[str, Any] = {
-            "contents": [{"parts": [{"text": prompt}]}],
+            "contents": [{"parts": parts}],
             "generationConfig": {"temperature": 0.4, "maxOutputTokens": max_tokens},
         }
+        # Gemini v1beta: systemInstruction is a top-level sibling of `contents`.
+        if system_prompt:
+            payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
         headers = {
             "x-goog-api-key": self.api_key,
             "Content-Type": "application/json",

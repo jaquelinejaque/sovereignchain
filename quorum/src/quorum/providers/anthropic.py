@@ -25,7 +25,14 @@ class AnthropicProvider(Provider):
         self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY", "")
         self.name = model
 
-    async def complete(self, prompt: str, *, max_tokens: int = 800) -> ModelResponse:
+    async def complete(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 800,
+        system_prompt: str | None = None,
+        **kwargs,
+    ) -> ModelResponse:
         if not self.api_key:
             return ModelResponse(name=self.name, response="", error="no_api_key")
 
@@ -34,11 +41,28 @@ class AnthropicProvider(Provider):
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
         }
+        images = kwargs.get("images", [])
+        content = [{"type": "text", "text": prompt}]
+        if images:
+            for img in images:
+                content.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "image/jpeg",
+                        "data": img
+                    }
+                })
+
         payload: dict[str, Any] = {
             "model": self.model,
             "max_tokens": max_tokens,
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": [{"role": "user", "content": content}],
         }
+        # Anthropic Messages API: `system` is a top-level sibling of
+        # `messages`, NOT a role inside the messages list.
+        if system_prompt:
+            payload["system"] = system_prompt
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             r = await client.post(
