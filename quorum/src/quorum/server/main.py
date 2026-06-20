@@ -999,7 +999,7 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
             logger.warning("license_validate lookup failed: %s", exc)
             # Fail open on lookup transient errors so paying customers
             # aren't grounded by a temporary DB hiccup.
-            return {"valid": True, "plan": "lookup_error_grace"}
+            return {"valid": False, "plan": "lookup_error"}
         if record is None:
             return {"valid": False, "plan": "unknown_key"}
         if getattr(record, "revoked_at", None):

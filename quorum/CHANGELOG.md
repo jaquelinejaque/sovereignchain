@@ -2,6 +2,22 @@
 
 All notable changes to Quorum are documented here. Format loosely follows Keep-a-Changelog; versioning follows SemVer.
 
+## 0.2.1 — Security patch (2026-06-20)
+
+### Critical
+- Killed fail-open in offline license validation
+- Added HMAC signature to ~/.quorum/license_cache.json
+- Restricted QUORUM_LICENSE_VALIDATE_URL to allowlisted hosts
+
+### High
+- QUORUM_HOSTED=1 now requires GCP metadata attestation
+- Replaced implicit PYTEST_CURRENT_TEST bypass with explicit "import quorum.testing"
+
+### Server
+- /v1/license/validate returns valid=false on lookup exception
+
+All 0.2.0 installs MUST upgrade. Old cache files will regenerate.
+
 ## [0.1.0] — 2026-06-16
 
 The "real product" release: 13 self-evolution loops, vector memory, HSP gate, FastAPI server, Stripe billing, and EU AI Act per-query PDF certificate. All modules ship with in-memory fallbacks so tests pass without external keys.

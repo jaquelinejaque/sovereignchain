@@ -18,5 +18,5 @@ from quorum import _local_mode  # noqa: F401
 
 from quorum.core.consensus import ConsensusResult, consensus
 
-__version__ = "0.2.0"
+__version__ = "0.2.1"
 __all__ = ["consensus", "ConsensusResult"]
