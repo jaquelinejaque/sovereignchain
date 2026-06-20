@@ -2,6 +2,21 @@
 
 All notable changes to Quorum are documented here. Format loosely follows Keep-a-Changelog; versioning follows SemVer.
 
+## 0.2.3 — HSP Black Box audit chain (2026-06-20)
+
+### Compliance primitive (EU AI Act Article 14 / SOC2 CC7.2)
+- New module: hsp/black_box.py — append-only SHA-256 hash chain over consensus calls
+- New CLI: quorum-audit (verify-chain, status, export, append) — separate binary, does not touch cli.py
+- Auto-hook in consensus.py: every consensus() call appends query_hash + metadata (NOT raw query text — privacy)
+- Tampering detection: any altered/deleted/inserted row breaks chain at that point
+- Export to JSONL with 0o444 (read-only WORM-lite) for external auditors
+
+### Tests
+- tests/hsp/test_black_box.py: 6 adversarial tests (tamper, delete, fail-safe append, export)
+
+### Backward compatible
+- Audit append is best-effort try/except — never breaks consensus response
+
 ## 0.2.2 — Transparency + behaviour parity (2026-06-20)
 
 ### Transparency (CRITICAL)

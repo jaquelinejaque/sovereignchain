@@ -896,6 +896,26 @@ async def consensus(
         rlhf_weights_applied=rlhf_applied,
     )
 
+    # Loop 14 — HSP Black Box audit append. Tamper-evident chain for
+    # EU AI Act Article 14 / SOC2 audit log compliance. Best-effort:
+    # never poison the response path. Persists query hash (not text)
+    # to avoid logging PII; full text stays in client memory only.
+    try:
+        from quorum.hsp.black_box import append as _audit_append
+        import hashlib as _hashlib
+        _audit_append({
+            "event": "consensus",
+            "query_hash": _hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            "query_class": query_class,
+            "confidence": confidence,
+            "scoring_method": scoring_method,
+            "models_invoked": [r.name for r in valid],
+            "evolution_signals": evolution_signals,
+            "total_cost_usd": result.total_cost_usd,
+        })
+    except Exception as e:  # noqa: BLE001
+        logger.debug("hsp.black_box append skipped (%s)", e)
+
     # Synthetic-data ingest (opt-in, fire-and-forget so the response is not
     # blocked by a JSONL disk write). Default is opt_in=False for privacy —
     # the caller has to explicitly request it per-query.
