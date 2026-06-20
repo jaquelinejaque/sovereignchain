@@ -14,8 +14,11 @@ specific suspicious suffixes. False negatives are preferred over false positives
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
+
+from quorum.agents.verifier_store import save_draft as _persist_draft
 
 # ---------------------------------------------------------------------------
 # Regex patterns
@@ -106,7 +109,23 @@ def _numbers_match(claimed: float, expected: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def find_conflicts(draft_text: str, fact_sheet: dict) -> list[dict]:
+def _persistence_enabled() -> bool:
+    """Feature flag — set QUORUM_VERIFIER_PERSIST=0 to disable disk writes.
+
+    Default ON. Tests that don't want disk writes opt out explicitly.
+    """
+    return os.environ.get("QUORUM_VERIFIER_PERSIST", "1") not in {"0", "false", "False"}
+
+
+def find_conflicts(
+    draft_text: str,
+    fact_sheet: dict,
+    *,
+    persist: bool | None = None,
+    kind: str = "unknown",
+    confidence: float = 0.0,
+    parent_draft_id: str | None = None,
+) -> list[dict]:
     """Return a list of conflict dicts found in the draft.
 
     Each conflict dict has the shape:
@@ -115,6 +134,17 @@ def find_conflicts(draft_text: str, fact_sheet: dict) -> list[dict]:
             "expected_value": Any,   # what the fact_sheet says (or None)
             "type": str,             # 'numeric_inflated' | 'name_invented' | 'unverifiable'
         }
+
+    Side-effect (additive, backward-compat)
+    ---------------------------------------
+    When `persist` is True (default: env-flag controlled), the draft text
+    plus the conflict list are written to the SQLite audit store via
+    `verifier_store.save_draft`. Disk failures are swallowed — see
+    `verifier_store.save_draft` for the rationale.
+
+    Callers that need the draft_id back should use `verify_and_persist()`
+    instead — `find_conflicts` keeps its original return signature for
+    backward compatibility.
     """
     conflicts: list[dict] = []
     seen: set[tuple[str, str]] = set()  # dedupe by (claim_text, type)
@@ -196,6 +226,21 @@ def find_conflicts(draft_text: str, fact_sheet: dict) -> list[dict]:
                 }
             )
 
+    # ---- 3. Side-effect: audit persistence -------------------------------
+    # Additive, backward-compat: only fires when the flag is on AND the
+    # caller did not explicitly opt out via persist=False. Failure is
+    # swallowed inside save_draft itself.
+    should_persist = persist if persist is not None else _persistence_enabled()
+    if should_persist:
+        _persist_draft(
+            draft_text,
+            conflicts=conflicts,
+            confidence=confidence,
+            parent_draft_id=parent_draft_id,
+            kind=kind,
+            fact_sheet=fact_sheet,
+        )
+
     return conflicts
 
 
@@ -228,3 +273,124 @@ def annotate_draft(draft_text: str, conflicts: list[dict]) -> str:
 
     footer = f"\n\n[VERIFICATION] {len(conflicts)} conflicts found; review before posting"
     return annotated + footer
+
+
+# ---------------------------------------------------------------------------
+# Persistence-aware helpers (additive — public surface for callers that want
+# the draft_id back, or that want to drive a verify→rewrite loop)
+# ---------------------------------------------------------------------------
+
+
+def verify_and_persist(
+    draft_text: str,
+    fact_sheet: dict,
+    *,
+    kind: str = "unknown",
+    confidence: float = 0.0,
+    parent_draft_id: str | None = None,
+    annotate: bool = False,
+) -> tuple[list[dict], str, str]:
+    """Run verification, persist, and return (conflicts, draft_id, content).
+
+    Unlike `find_conflicts`, this returns the persisted `draft_id` so
+    callers can chain attempts via `parent_draft_id`. If `annotate=True`,
+    the persisted content is the annotated form and verdict is
+    'annotated'; otherwise the raw draft is stored with verdict 'clean'
+    or 'conflicts' derived from the conflict list.
+    """
+    # Bypass the side-effect inside find_conflicts — we want to control
+    # the persistence call ourselves (so we get the draft_id back and can
+    # set verdict='annotated' when applicable).
+    conflicts = find_conflicts(draft_text, fact_sheet, persist=False)
+
+    content = annotate_draft(draft_text, conflicts) if (annotate and conflicts) else draft_text
+    verdict: str | None = "annotated" if (annotate and conflicts) else None
+
+    draft_id = _persist_draft(
+        content,
+        verdict=verdict,
+        conflicts=conflicts,
+        confidence=confidence,
+        parent_draft_id=parent_draft_id,
+        kind=kind,
+        fact_sheet=fact_sheet,
+    )
+    return conflicts, draft_id, content
+
+
+def iterate_draft(
+    content: str,
+    fact_sheet: dict,
+    *,
+    rewriter,
+    max_iter: int = 3,
+    kind: str = "unknown",
+    initial_confidence: float = 0.0,
+) -> dict:
+    """Verify → rewrite → re-verify loop with lineage persistence.
+
+    `rewriter` is a sync callable `(prev_content, conflicts) -> (new_content,
+    new_confidence)`. The function is provided by the caller (it's where
+    the LLM call lives) so this module stays free of LLM dependencies and
+    remains trivially unit-testable with a stub rewriter.
+
+    Stops when the verifier returns zero conflicts or `max_iter` is hit.
+    Each attempt is persisted with `parent_draft_id` set, so the full
+    lineage is queryable via `verifier_store.get_history(draft_id)`.
+
+    Returns a dict with the final content, the final draft_id, the number
+    of iterations actually run, and the unresolved conflict count.
+    """
+    if max_iter < 1:
+        max_iter = 1
+
+    current_content = content
+    current_confidence = float(initial_confidence)
+    parent_id: str | None = None
+    iterations = 0
+    final_conflicts: list[dict] = []
+    final_draft_id = ""
+
+    for iterations in range(1, max_iter + 1):
+        conflicts, draft_id, persisted_content = verify_and_persist(
+            current_content,
+            fact_sheet,
+            kind=kind,
+            confidence=current_confidence,
+            parent_draft_id=parent_id,
+            annotate=False,
+        )
+        final_conflicts = conflicts
+        final_draft_id = draft_id or final_draft_id
+        parent_id = draft_id or parent_id
+
+        if not conflicts:
+            current_content = persisted_content
+            break
+
+        if iterations >= max_iter:
+            # Annotate + persist final, parent linked to last attempt.
+            annotated = annotate_draft(persisted_content, conflicts)
+            annotated_id = _persist_draft(
+                annotated,
+                verdict="annotated",
+                conflicts=conflicts,
+                confidence=current_confidence,
+                parent_draft_id=parent_id,
+                kind=kind,
+                fact_sheet=fact_sheet,
+            )
+            final_draft_id = annotated_id or final_draft_id
+            current_content = annotated
+            break
+
+        new_content, new_confidence = rewriter(persisted_content, conflicts)
+        current_content = new_content
+        current_confidence = float(new_confidence)
+
+    return {
+        "content": current_content,
+        "draft_id": final_draft_id,
+        "iterations": iterations,
+        "unresolved": len(final_conflicts),
+    }
