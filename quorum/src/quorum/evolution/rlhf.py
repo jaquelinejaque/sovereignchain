@@ -661,7 +661,11 @@ class RLHFTracker:
                     event.user_id,
                     event.query,
                     event.query_class,
-                    event.chosen_model_name,
+                    # Schema requires NOT NULL; consensus-mode answers have
+                    # no single chosen model — record "<consensus>" so the
+                    # event is still stored and credit-assigned via the
+                    # contributions map below.
+                    event.chosen_model_name or "<consensus>",
                     event.rating,
                     event.created_at,
                 ),
