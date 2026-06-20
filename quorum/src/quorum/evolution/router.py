@@ -167,6 +167,54 @@ async def _safe_hebbian_boosts(
         return {m: 1.0 for m in candidates}
 
 
+async def _safe_elo_boosts(
+    query_class: str, candidates: Sequence[str]
+) -> Mapping[str, float]:
+    """ELO-derived multiplier from Loop 7 (model-vs-model tournament).
+
+    WHY: until this hook was added, the ELO tournament was a write-only
+    leaderboard — 33 models had been ranked across 16k+ duels but the
+    routing path never consumed those scores. This closes the loop so a
+    model that consistently wins head-to-heads gets called more often.
+
+    Boost mapping: rating / 1500.0  (so a model at default 1500 → 1.0×;
+    nvidia-llama-3.1-8b at 1985 → 1.32×; claude-sonnet-4-6 at 1043 → 0.70×).
+
+    Fallback (DB missing, sqlite error, model not in tournament yet) returns
+    neutral 1.0 — identical to pre-fix behaviour, so this is a safe lift.
+    """
+    try:
+        import sqlite3
+        from quorum.evolution.competition import (  # type: ignore[attr-defined]
+            _ELO_DEFAULT_RATING, _default_competition_db_path,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("competition module not available; ELO boosts neutral")
+        return {m: 1.0 for m in candidates}
+
+    try:
+        db_path = _default_competition_db_path()
+        if not db_path.exists():
+            return {m: 1.0 for m in candidates}
+        conn = sqlite3.connect(str(db_path), timeout=2.0)
+        conn.row_factory = sqlite3.Row
+        try:
+            rows = conn.execute(
+                "SELECT model_name, rating FROM elo WHERE query_class = ?",
+                (query_class,),
+            ).fetchall()
+        finally:
+            conn.close()
+        ratings = {row["model_name"]: float(row["rating"]) for row in rows}
+        return {
+            m: max(0.5, min(2.0, ratings.get(m, _ELO_DEFAULT_RATING) / _ELO_DEFAULT_RATING))
+            for m in candidates
+        }
+    except Exception as e:  # noqa: BLE001
+        logger.warning("elo boost lookup failed (%s); using neutral", e)
+        return {m: 1.0 for m in candidates}
+
+
 # ---------------------------------------------------------------------------
 # Query classification
 # ---------------------------------------------------------------------------
@@ -501,12 +549,13 @@ class MoERouter:
             _fetch_policy_sync, self.db_path, query_class, candidates
         )
 
-        rlhf, hebbian = await asyncio.gather(
+        rlhf, hebbian, elo = await asyncio.gather(
             _safe_rlhf_weights(user_id, candidates),
             _safe_hebbian_boosts(query_class, candidates),
+            _safe_elo_boosts(query_class, candidates),
         )
 
-        # Adjusted score = (quality * rlhf * hebbian) / cost.
+        # Adjusted score = (quality * rlhf * hebbian * elo) / cost.
         # When samples<MIN we add a small exploration bonus (UCB-style) so
         # under-sampled models occasionally get picked.
         scored: list[tuple[str, float, PolicyRow]] = []
@@ -514,8 +563,9 @@ class MoERouter:
             base = row.score()
             rlhf_w = rlhf.get(row.model_name, 1.0)
             heb_w = hebbian.get(row.model_name, 1.0)
+            elo_w = elo.get(row.model_name, 1.0)
             exploration = 0.15 if row.samples < _MIN_SAMPLES_FOR_EXPLOIT else 0.0
-            adjusted = base * rlhf_w * heb_w + exploration
+            adjusted = base * rlhf_w * heb_w * elo_w + exploration
             scored.append((row.model_name, adjusted, row))
 
         scored.sort(key=lambda x: x[1], reverse=True)
