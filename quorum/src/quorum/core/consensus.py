@@ -419,7 +419,7 @@ async def consensus(
     *,
     providers: Sequence[Provider] | None = None,
     max_concurrency: int = 8,
-    timeout_s: float = 30.0,
+    timeout_s: float = 60.0,
     user_id: str | None = None,
     budget_usd: float = 0.05,
     route: bool = True,
@@ -427,6 +427,7 @@ async def consensus(
     enable_self_prompt: bool = True,
     self_prompt_threshold: float | None = None,
     self_prompt_rewriter: Any | None = None,
+    images: list[str] | None = None,
 ) -> ConsensusResult:
     """Run N LLMs in parallel and synthesize a consensus answer.
 
@@ -464,6 +465,18 @@ async def consensus(
             "GOOGLE_AI_STUDIO_KEY, REPLICATE_API_TOKEN, or run Ollama locally."
         )
 
+    if user_id:
+        try:
+            from quorum.core.embeddings import EmbeddingProvider
+            from quorum.evolution.memory_loop import MemoryEvolution
+            mem = MemoryEvolution()
+            embedder = EmbeddingProvider.from_env()
+            retrieved_context = await mem.retrieve_context(user_id, prompt, embedder)
+            if retrieved_context:
+                prompt = f"Previous Context:\n{retrieved_context}\n\nCurrent Request:\n{prompt}"
+        except Exception as e:
+            logger.debug("Memory retrieval skipped (%s)", e)
+
     if route:
         selected, router_names, query_class = await _route_providers(
             prompt, user_id, providers, budget_usd
@@ -495,7 +508,10 @@ async def consensus(
         async with semaphore:
             t0 = time.perf_counter()
             try:
-                resp = await asyncio.wait_for(p.complete(prompt), timeout=timeout_s)
+                if images:
+                    resp = await asyncio.wait_for(p.complete(prompt, images=images), timeout=timeout_s)
+                else:
+                    resp = await asyncio.wait_for(p.complete(prompt), timeout=timeout_s)
             except asyncio.TimeoutError:
                 return ModelResponse(
                     name=p.name, response="", error="timeout",
@@ -676,7 +692,7 @@ async def consensus_ab(
     *,
     providers: Sequence[Provider] | None = None,
     max_concurrency: int = 8,
-    timeout_s: float = 30.0,
+    timeout_s: float = 60.0,
     user_id: str | None = None,
     budget_usd: float = 0.05,
     route: bool = True,
