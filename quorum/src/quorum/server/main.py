@@ -970,6 +970,43 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
             ],
         }
 
+    # ---------- license validation (called by self-hosted Quorum 0.2.0+) -----
+
+    @app.get("/v1/license/validate", tags=["license"])
+    async def license_validate(
+        request: Request,
+        key: str = "",
+    ) -> dict[str, object]:
+        """Public endpoint — Quorum CLI/library hits this at import time.
+
+        Self-hosted Quorum 0.2.0+ calls this on every import (cached 24h
+        client-side) to confirm the QUORUM_LICENSE_KEY env var still
+        maps to an active, non-revoked customer record. Returns
+        ``{"valid": bool, "plan": str}``.
+
+        Why a separate endpoint and not the existing /v1/usage call:
+        license_validate is called from a context that does NOT have a
+        running consensus query and does NOT want to hit the billing/
+        quota path. It's a cheap key-existence check, nothing more.
+        """
+        state = _get_state(request)
+        key = (key or "").strip()
+        if not key:
+            return {"valid": False, "plan": "missing_key"}
+        try:
+            record = await state.api_key_store.lookup(key)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("license_validate lookup failed: %s", exc)
+            # Fail open on lookup transient errors so paying customers
+            # aren't grounded by a temporary DB hiccup.
+            return {"valid": True, "plan": "lookup_error_grace"}
+        if record is None:
+            return {"valid": False, "plan": "unknown_key"}
+        if getattr(record, "revoked_at", None):
+            return {"valid": False, "plan": "revoked"}
+        plan = getattr(record, "tier", "pro") or "pro"
+        return {"valid": True, "plan": str(plan)}
+
     # ---------- health -------------------------------------------------------
 
     @app.get("/v1/healthz", response_model=HealthResponse, tags=["meta"])
