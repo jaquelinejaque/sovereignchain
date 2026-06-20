@@ -997,8 +997,9 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
             record = await state.api_key_store.lookup(key)
         except Exception as exc:  # noqa: BLE001
             logger.warning("license_validate lookup failed: %s", exc)
-            # Fail open on lookup transient errors so paying customers
-            # aren't grounded by a temporary DB hiccup.
+            # Fail SECURE on lookup error: paying customers will see brief
+            # disruption during an ops-visible outage, attackers see nothing.
+            # Better than silent grace that leaks valid=true to anyone.
             return {"valid": False, "plan": "lookup_error"}
         if record is None:
             return {"valid": False, "plan": "unknown_key"}
