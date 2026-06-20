@@ -1,16 +1,16 @@
 [project]
 name = "quorum-ai"
-version = "0.1.5"
-description = "Multi-LLM consensus engine with semantic agreement and self-evolution"
+version = "0.2.0"
+description = "Multi-LLM consensus engine with semantic agreement and self-evolution. Source-available under FSL-1.1-Apache-2.0."
 authors = [{ name = "Jaqueline Martins", email = "jaqueline@hsp-protocol.com" }]
-license = "Apache-2.0"
+license = "LicenseRef-FSL-1.1-Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.10"
-keywords = ["llm", "consensus", "multi-model", "ai", "orchestration", "ensemble"]
+keywords = ["llm", "consensus", "multi-model", "ai", "orchestration", "ensemble", "audit", "fact-grounding", "compliance"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
+    "License :: Other/Proprietary License",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
