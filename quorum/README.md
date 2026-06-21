@@ -1,6 +1,7 @@
 # Quorum
 
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20783506.svg)](https://doi.org/10.5281/zenodo.20783506)
+[![ORCID](https://img.shields.io/badge/ORCID-0009--0009--7732--5915-A6CE39?logo=orcid&logoColor=white)](https://orcid.org/0009-0009-7732-5915)
 [![License](https://img.shields.io/badge/License-FSL--1.1-blue.svg)](LICENSE)
 [![Paper](https://img.shields.io/badge/Paper-Frontier_LLMs_Converge-7fe8a8.svg)](https://doi.org/10.5281/zenodo.20783506)
 
