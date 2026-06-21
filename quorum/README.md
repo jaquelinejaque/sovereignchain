@@ -1,13 +1,8 @@
 # Quorum
 
-[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20783506.svg)](https://doi.org/10.5281/zenodo.20783506)
-[![ORCID](https://img.shields.io/badge/ORCID-0009--0009--7732--5915-A6CE39?logo=orcid&logoColor=white)](https://orcid.org/0009-0009-7732-5915)
 [![License](https://img.shields.io/badge/License-FSL--1.1-blue.svg)](LICENSE)
-[![Paper](https://img.shields.io/badge/Paper-Frontier_LLMs_Converge-7fe8a8.svg)](https://doi.org/10.5281/zenodo.20783506)
 
 > Multi-LLM consensus engine. 14+ models in parallel. Semantic consensus via embeddings. Self-evolves with use. Patent Pending: HSP (PCT/US26/11908).
-
-> 📄 **Empirical paper (2026-06-21):** [Frontier LLMs Converge: Empirical Evidence of Ensemble Redundancy in a 20,296-Match Tournament](https://doi.org/10.5281/zenodo.20783506) — produced by this codebase running 35 days in production.
 
 ```bash
 pip install quorum-ai
