@@ -1,6 +1,12 @@
 # Quorum
 
-> Multi-LLM consensus engine. 8+ models in parallel. Semantic consensus via embeddings. Self-evolves with use. Patent Pending: HSP (PCT/US26/11908).
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20783506.svg)](https://doi.org/10.5281/zenodo.20783506)
+[![License](https://img.shields.io/badge/License-FSL--1.1-blue.svg)](LICENSE)
+[![Paper](https://img.shields.io/badge/Paper-Frontier_LLMs_Converge-7fe8a8.svg)](https://doi.org/10.5281/zenodo.20783506)
+
+> Multi-LLM consensus engine. 14+ models in parallel. Semantic consensus via embeddings. Self-evolves with use. Patent Pending: HSP (PCT/US26/11908).
+
+> 📄 **Empirical paper (2026-06-21):** [Frontier LLMs Converge: Empirical Evidence of Ensemble Redundancy in a 20,296-Match Tournament](https://doi.org/10.5281/zenodo.20783506) — produced by this codebase running 35 days in production.
 
 ```bash
 pip install quorum-ai
@@ -18,8 +24,8 @@ result = await consensus("What is the chemical structure of L-Cysteine?")
 # result.evolution_signals → which loops fired this query
 ```
 
-> **Pro tier: £49/mo** — solo devs, BYOK, all 13 evolution loops, 5,000 queries/mo, £0.012 overage.
-> Start in 30 seconds at https://quorum-ai.dev.
+> **Pro tier: £149/mo** — paid commercial product, BYOK, all evolution loops, 5,000 queries/mo, HSP audit chain.
+> [Buy on Stripe](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j) · Source-available under FSL-1.1 (Apache-2.0 in 2028).
 
 ## Recommended usage pattern — context profiles
 
@@ -128,6 +134,18 @@ The EU AI Act enforcement window starts 2026-08-02 for general-purpose AI system
 - SHA-256 chain link to previous certificate in tenant (tamper-evident)
 
 PDF generated via reportlab. Stored in tenant bucket; downloadable via `/v1/cert/{query_id}`. Code in `hsp/ai_act_cert.py`.
+
+## Audit & Compliance — HSP Black Box
+
+Every consensus() call appends to a tamper-evident SHA-256 hash chain at
+~/.quorum/audit_chain.db. Auditors can verify integrity offline:
+
+  quorum-audit verify-chain     # exit 0 = intact, 2 = broken
+  quorum-audit status           # row count + first/last timestamps
+  quorum-audit export --since 2026-01-01T00:00:00Z --out /tmp/audit.jsonl
+
+EU AI Act Article 14 / SOC2 CC7.2 compliance primitive. See
+docs/HSP_BLACK_BOX.md for details.
 
 ## Architecture
 
