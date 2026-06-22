@@ -162,6 +162,48 @@ def test_export_rejects_unparseable_since(_isolated_db, monkeypatch):
     assert result.exit_code != 0
 
 
+def test_vacuum_without_yes_prompts_and_aborts_on_no(_isolated_db, monkeypatch):
+    """Without --yes, vacuum must ask for confirmation. Answering ``n``
+    aborts WITHOUT touching the DB — typer.confirm(..., abort=True)
+    is the contract."""
+    _enable(monkeypatch)
+    _seed_rows()
+    result = runner.invoke(
+        app, ["vacuum", "--older-than-days", "1"], input="n\n",
+    )
+    # Aborting via typer.confirm exits with code 1.
+    assert result.exit_code != 0
+    # Rows still present.
+    assert response_log.stats()["rows"] == 2
+
+
+def test_export_file_filter_combination(_isolated_db, monkeypatch, tmp_path):
+    """`--model X --out Y` writes only that model's rows to the file."""
+    _enable(monkeypatch)
+    _seed_rows()
+    out = tmp_path / "claude.jsonl"
+    result = runner.invoke(
+        app, ["export", "--model", "claude", "--out", str(out)],
+    )
+    assert result.exit_code == 0
+    lines = out.read_text("utf-8").splitlines()
+    assert len(lines) == 1
+    assert json.loads(lines[0])["model"] == "claude"
+
+
+def test_export_when_db_missing_writes_zero_rows(_isolated_db, tmp_path):
+    """With no DB on disk, ``export --out X`` writes an empty file and
+    reports 'wrote 0 rows' — same exit-0 shape so cron wrappers parse it
+    identically whether there's data or not."""
+    assert not _isolated_db.exists()
+    out = tmp_path / "empty.jsonl"
+    result = runner.invoke(app, ["export", "--out", str(out)])
+    assert result.exit_code == 0
+    assert out.exists()
+    assert out.read_text("utf-8") == ""
+    assert "wrote 0 rows" in result.output
+
+
 def test_vacuum_with_yes_deletes_old_rows(_isolated_db, monkeypatch):
     """`vacuum --yes --older-than-days 0.something` would delete
     everything; use a long horizon to verify nothing is deleted and
