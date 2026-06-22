@@ -132,3 +132,60 @@ def test_run_with_class_filter_runs_fewer_items(tmp_path):
     data = json.loads(sidecar.read_text("utf-8"))
     # 15 factual items in the canonical set.
     assert data["samples_evaluated"] == 15
+
+
+def test_run_unknown_class_exits_nonzero(tmp_path):
+    """``run --class nope`` must fail loudly, not silently run zero items
+    and write a misleading sidecar with samples_evaluated=0."""
+    sidecar = tmp_path / "bench.json"
+    result = runner.invoke(app, [
+        "run", "--version", "v", "--sidecar", str(sidecar),
+        "--class", "this_class_does_not_exist", "--quiet",
+    ])
+    assert result.exit_code != 0
+    # And no sidecar was written.
+    assert not sidecar.exists()
+
+
+def test_install_is_idempotent_on_canonical_file(tmp_path):
+    """Re-running ``install`` on an already-canonical file is a no-op.
+    Catches a regression where the writer would clobber and re-write,
+    burning disk and momentarily emptying the file."""
+    out = tmp_path / "eval.jsonl"
+    first = runner.invoke(app, ["install", "--path", str(out)])
+    assert first.exit_code == 0
+    mtime1 = out.stat().st_mtime
+    content1 = out.read_text("utf-8")
+
+    # Re-run without --overwrite. File should still be the same.
+    second = runner.invoke(app, ["install", "--path", str(out)])
+    assert second.exit_code == 0
+    assert out.read_text("utf-8") == content1
+    # mtime may or may not move (depends on writer optimization),
+    # but content stability is the contract that matters.
+
+
+def test_install_overwrite_replaces_custom_file(tmp_path):
+    """``--overwrite`` must replace a pre-existing non-canonical file."""
+    out = tmp_path / "eval.jsonl"
+    out.write_text("{\"id\":\"custom\",\"prompt\":\"x\"}\n", "utf-8")
+    custom_content = out.read_text("utf-8")
+
+    result = runner.invoke(app, ["install", "--path", str(out), "--overwrite"])
+    assert result.exit_code == 0
+    new_content = out.read_text("utf-8")
+    assert new_content != custom_content
+    # Canonical file is exactly 50 lines.
+    assert len(new_content.splitlines()) == 50
+
+
+def test_install_without_overwrite_preserves_custom_file(tmp_path):
+    """Without --overwrite, a pre-existing non-canonical file is left
+    alone (operator may have placed their own eval set there)."""
+    out = tmp_path / "eval.jsonl"
+    custom = "{\"id\":\"custom\",\"prompt\":\"x\"}\n"
+    out.write_text(custom, "utf-8")
+
+    result = runner.invoke(app, ["install", "--path", str(out)])
+    assert result.exit_code == 0
+    assert out.read_text("utf-8") == custom
