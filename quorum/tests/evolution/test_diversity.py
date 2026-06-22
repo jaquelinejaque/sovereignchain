@@ -32,6 +32,7 @@ import pytest
 
 from quorum.evolution.diversity import (
     MIN_HEBBIAN_SAMPLES,
+    _pearson,
     compute_diversity_quality_correlation,
     select_diverse_quality_panel,
 )
@@ -227,3 +228,140 @@ def test_panel_picker_respects_similarity_floor(tmp_path):
         competition_db=c,
     )
     assert panel == []
+
+
+# --------------------------------------------------------------------------- #
+# _pearson helper — degenerate input paths                                     #
+# --------------------------------------------------------------------------- #
+
+
+def test_pearson_returns_zero_for_n_lt_2():
+    """Pearson is undefined for n<2 — caller contract says return 0.0."""
+    assert _pearson([], []) == 0.0
+    assert _pearson([1.0], [2.0]) == 0.0
+
+
+def test_pearson_returns_zero_for_mismatched_lengths():
+    """A mismatched-length call is a bug at the caller — but we still
+    fail safe with 0.0 instead of raising."""
+    assert _pearson([1.0, 2.0, 3.0], [1.0, 2.0]) == 0.0
+
+
+def test_pearson_returns_zero_for_zero_variance():
+    """All-equal inputs → denom is 0; must short-circuit to 0.0
+    rather than divide by zero."""
+    assert _pearson([1.0, 1.0, 1.0, 1.0], [3.0, 5.0, 7.0, 9.0]) == 0.0
+    assert _pearson([3.0, 5.0, 7.0, 9.0], [2.0, 2.0, 2.0, 2.0]) == 0.0
+
+
+def test_pearson_returns_one_for_perfect_positive():
+    """Sanity: y = 2x + 3 → r should be exactly 1.0 (within FP)."""
+    xs = [1.0, 2.0, 3.0, 4.0, 5.0]
+    ys = [2.0 * x + 3.0 for x in xs]
+    assert _pearson(xs, ys) == pytest.approx(1.0, abs=1e-12)
+
+
+def test_pearson_returns_minus_one_for_perfect_negative():
+    """Sanity: y = -x → r should be exactly -1.0."""
+    xs = [1.0, 2.0, 3.0, 4.0, 5.0]
+    ys = [-x for x in xs]
+    assert _pearson(xs, ys) == pytest.approx(-1.0, abs=1e-12)
+
+
+# --------------------------------------------------------------------------- #
+# select_diverse_quality_panel — edge cases                                    #
+# --------------------------------------------------------------------------- #
+
+
+def test_panel_size_zero_returns_empty(tmp_path):
+    """panel_size < 1 must return [] rather than wrap around or raise."""
+    h = tmp_path / "h.db"
+    c = tmp_path / "c.db"
+    _make_competition(c, {"a": 1500.0, "b": 1700.0})
+    _make_hebbian(h, [("a", "b", 0.90, 50)])
+    assert select_diverse_quality_panel(
+        panel_size=0, hebbian_db=h, competition_db=c,
+    ) == []
+
+
+def test_panel_size_greater_than_pool_returns_full_pool(tmp_path):
+    """If panel_size exceeds the cluster size, return every clustered
+    model (the contract is "give me up to N", not "fail if you can't")."""
+    h = tmp_path / "h.db"
+    c = tmp_path / "c.db"
+    _make_competition(c, {"a": 1500.0, "b": 1700.0, "c": 1800.0})
+    _make_hebbian(
+        h,
+        [
+            ("a", "b", 0.90, 50),
+            ("a", "c", 0.88, 50),
+            ("b", "c", 0.87, 50),
+        ],
+    )
+    panel = select_diverse_quality_panel(
+        panel_size=99, similarity_floor=0.83,
+        hebbian_db=h, competition_db=c,
+    )
+    assert set(panel) == {"a", "b", "c"}
+
+
+def test_panel_all_equal_elo_collapses_to_single_pick(tmp_path):
+    """When every clustered model has the same ELO AND panel_size is
+    smaller than the pool, equal-width bins have width 0 — picker must
+    collapse to a single best model rather than spin on a divide-by-zero.
+    (When panel_size >= pool the shortcut at the top of the function
+    fires first and returns everything; this test exercises the binning
+    path.)"""
+    h = tmp_path / "h.db"
+    c = tmp_path / "c.db"
+    _make_competition(
+        c,
+        {"a": 1500.0, "b": 1500.0, "d": 1500.0, "e": 1500.0, "f": 1500.0},
+    )
+    _make_hebbian(
+        h,
+        [
+            ("a", "b", 0.90, 50),
+            ("a", "d", 0.90, 50),
+            ("a", "e", 0.90, 50),
+            ("a", "f", 0.90, 50),
+            ("b", "d", 0.90, 50),
+            ("b", "e", 0.90, 50),
+            ("b", "f", 0.90, 50),
+            ("d", "e", 0.90, 50),
+            ("d", "f", 0.90, 50),
+            ("e", "f", 0.90, 50),
+        ],
+    )
+    # panel_size=2 < pool_size=5 → binning path; hi==lo → collapse to 1.
+    panel = select_diverse_quality_panel(
+        panel_size=2, similarity_floor=0.83,
+        hebbian_db=h, competition_db=c,
+    )
+    assert len(panel) == 1
+
+
+def test_panel_clustered_model_without_elo_excluded(tmp_path):
+    """A model that's clustered (passes similarity_floor) but missing
+    from the ELO table for this query_class must be dropped, not
+    KeyError out."""
+    h = tmp_path / "h.db"
+    c = tmp_path / "c.db"
+    _make_competition(c, {"a": 1500.0, "b": 1700.0})  # 'b' present
+    # 'b' will be clustered via the (a,b) pair, but pretend it's also
+    # clustered with an extra-frontier-model not in ELO at all.
+    _make_hebbian(
+        h,
+        [
+            ("a", "b", 0.90, 50),
+            ("a", "no_elo", 0.95, 50),  # 'no_elo' clustered but no rating
+        ],
+    )
+    panel = select_diverse_quality_panel(
+        panel_size=3, similarity_floor=0.83,
+        hebbian_db=h, competition_db=c,
+    )
+    # 'no_elo' silently dropped because the join in
+    # compute_diversity_quality_correlation already excludes it.
+    assert "no_elo" not in panel
+    assert set(panel).issubset({"a", "b"})
