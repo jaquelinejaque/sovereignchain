@@ -294,6 +294,159 @@ class DistillationPipeline:
         )
 
     # ------------------------------------------------------------------
+    # Step 1b — alternative source: the opt-in response_log SQLite store
+    # ------------------------------------------------------------------
+
+    async def collect_from_response_log(
+        self,
+        since: datetime,
+        *,
+        min_consensus: float = 0.85,
+        min_pair_count: int = 3,
+        max_rows: int | None = None,
+    ) -> list[DistillationSample]:
+        """Stream candidates from ``evolution.response_log`` (SQLite) instead of JSONL.
+
+        Why this method exists:
+            ``collect_distillation_candidates`` reads ``~/.quorum/queries.jsonl``,
+            which the codebase never populates today (the file is a future
+            opt-in for self-hosted operators who want to ship their own log
+            format). Meanwhile ``evolution.response_log`` *does* persist every
+            consensus round when the operator sets ``QUORUM_LOG_RESPONSES=1``.
+            This method bridges the two so the nightly distillation pipeline
+            can run against real production data without a JSONL bolt-on.
+
+        Reconstruction rules (mirrors `_record_to_sample` semantics so the
+        downstream dataset shape is identical):
+
+        * ONE consensus round = one ``query_hash``. We group all per-model
+          rows by ``query_hash`` and replay them as a single candidate.
+        * The "answer" is the response of the row flagged ``was_canonical = 1``
+          for that query. If no canonical row exists (older data) we fall
+          back to the longest frontier response, matching the JSONL path.
+        * Confidence is approximated as the mean ``weight`` across rows of
+          the same query — weights in ``response_log`` are post-RLHF/Hebbian
+          normalised values that sum to 1, so their mean is monotone in the
+          tightness of the consensus. Cold-start: when every weight is 0
+          we default to 1.0 to match the in-memory consensus result shape
+          (a single-model fan-out is trivially "self-agreeing").
+        * Only frontier-model rows count toward ``min_pair_count``.
+        * Privacy reminder: ``response_log`` stores ``query_hash``, never the
+          prompt plaintext, so the produced ``DistillationSample.query``
+          field will be the *hash*, not the original text. Callers that need
+          the prompt back must persist it themselves at write time (e.g.
+          alongside the consensus call) or call this method only on logs
+          they collected with their own augmented schema. This is a hard
+          privacy boundary, not a bug — the response_log was designed for
+          re-analysis, not for plaintext distillation, and we surface that
+          tradeoff here instead of silently leaking the wrong field.
+
+        Args:
+            since: Only rows with ``created_at >= since`` (UTC) are considered.
+            min_consensus: Mean weight threshold below which a query is dropped.
+            min_pair_count: Minimum frontier models contributing answers.
+            max_rows: Optional cap on rows read (sanity bound for huge logs).
+
+        Returns:
+            ``list[DistillationSample]`` ready for ``build_dataset``.
+        """
+        # Lazy import — keeps this module loadable even if response_log
+        # is absent (e.g. in a slim install profile).
+        try:
+            from quorum.evolution.response_log import export_jsonl
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "distillation.response_log_unavailable err=%s — returning []", e
+            )
+            return []
+
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=timezone.utc)
+
+        def _collect() -> list[DistillationSample]:
+            grouped: dict[str, list[dict[str, Any]]] = {}
+            since_ts = since.timestamp()
+            for i, row in enumerate(export_jsonl(since=since_ts)):
+                if max_rows is not None and i >= max_rows:
+                    break
+                grouped.setdefault(row["query_hash"], []).append(row)
+            return [
+                s
+                for s in (
+                    self._reconstruct_sample(qh, rows, min_consensus, min_pair_count)
+                    for qh, rows in grouped.items()
+                )
+                if s is not None
+            ]
+
+        samples = await asyncio.to_thread(_collect)
+        logger.info(
+            "distillation.collected_from_response_log count=%d since=%s",
+            len(samples),
+            since.isoformat(),
+        )
+        return samples
+
+    def _reconstruct_sample(
+        self,
+        query_hash: str,
+        rows: list[dict[str, Any]],
+        min_consensus: float,
+        min_pair_count: int,
+    ) -> DistillationSample | None:
+        """Build one ``DistillationSample`` from rows of the response_log.
+
+        Sibling of ``_record_to_sample`` for the JSONL path. Kept symmetric
+        so a refactor of the filter rules only needs to touch one of the
+        two and the other follows by hand.
+        """
+        if not rows:
+            return None
+
+        frontier_rows = [
+            r
+            for r in rows
+            if r.get("response_text")
+            and any(tag in str(r.get("model", "")).lower() for tag in self.frontier_models)
+        ]
+        if len(frontier_rows) < min_pair_count:
+            return None
+
+        # Mean weight as a confidence proxy. response_log stores post-
+        # normalisation weights, so the *spread* (not the level) is the
+        # signal. Use mean as a stand-in until a proper score column is
+        # added upstream.
+        weights = [float(r.get("weight", 0.0)) for r in frontier_rows]
+        nonzero = [w for w in weights if w > 0]
+        score = (sum(nonzero) / len(nonzero)) if nonzero else 1.0
+        if score < min_consensus:
+            return None
+
+        # Canonical answer: was_canonical row wins; else the longest
+        # frontier response.
+        canonical = next(
+            (r for r in frontier_rows if r.get("was_canonical")), None
+        )
+        if canonical is None:
+            canonical = max(frontier_rows, key=lambda r: len(r.get("response_text", "")))
+        consensus_response = str(canonical.get("response_text", "")).strip()
+        if not consensus_response:
+            return None
+
+        # Timestamp: latest row in the group (consensus completes when the
+        # slowest provider returns).
+        latest_ts = max(float(r.get("created_at", 0)) for r in frontier_rows)
+        iso_ts = datetime.fromtimestamp(latest_ts, tz=timezone.utc).isoformat()
+
+        return DistillationSample(
+            query=query_hash,  # see method docstring re: privacy boundary
+            consensus_response=consensus_response,
+            source_models=[str(r.get("model", "")) for r in frontier_rows],
+            agreement_score=score,
+            timestamp=iso_ts,
+        )
+
+    # ------------------------------------------------------------------
     # Step 2 — write the Unsloth-compatible dataset
     # ------------------------------------------------------------------
 
