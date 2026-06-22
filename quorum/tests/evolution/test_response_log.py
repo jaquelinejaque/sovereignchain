@@ -247,6 +247,117 @@ def test_stats_overview(_isolated_db, monkeypatch):
     assert s["rows_with_embedding"] == 0
 
 
+def test_concurrent_writes_dont_lose_rows(_isolated_db, monkeypatch):
+    """``record_consensus_round`` is called fire-and-forget from consensus
+    (asyncio.create_task), so two consensus rounds may write to the same
+    SQLite file simultaneously. WAL + 10s timeout should let all rows
+    land without a ``database is locked`` error swallowing data."""
+    _enable(monkeypatch)
+
+    async def _runner():
+        await asyncio.gather(*(
+            response_log.record_consensus_round(
+                prompt=f"prompt-{i}",
+                query_class="general",
+                model_responses=[
+                    {"model": f"model-{j}", "response_text": f"r-{i}-{j}"}
+                    for j in range(3)
+                ],
+            )
+            for i in range(8)
+        ))
+
+    asyncio.run(_runner())
+
+    rows = list(response_log.export_jsonl())
+    assert len(rows) == 24  # 8 prompts × 3 models
+    # Every prompt landed
+    assert len({r["query_hash"] for r in rows}) == 8
+    # Every model landed for every prompt
+    assert len({(r["query_hash"], r["model"]) for r in rows}) == 24
+
+
+def test_export_filter_until_excludes_future(_isolated_db, monkeypatch):
+    """The ``until`` filter is half-open: rows AT exactly ``until`` are
+    excluded. Symmetric with ``since`` being closed."""
+    _enable(monkeypatch)
+    asyncio.run(
+        response_log.record_consensus_round(
+            prompt="early", query_class="general",
+            model_responses=[{"model": "m", "response_text": "early"}],
+        )
+    )
+    boundary = time.time()
+    time.sleep(0.01)
+    asyncio.run(
+        response_log.record_consensus_round(
+            prompt="late", query_class="general",
+            model_responses=[{"model": "m", "response_text": "late"}],
+        )
+    )
+
+    before = list(response_log.export_jsonl(until=boundary))
+    assert [r["response_text"] for r in before] == ["early"]
+
+
+def test_stats_on_missing_db_returns_safe_summary(_isolated_db):
+    """``stats()`` against a never-written DB returns enabled/db_exists
+    without raising, so the CLI exits 0 instead of crashing on first run."""
+    assert not _isolated_db.exists()
+    s = response_log.stats()
+    assert s["db_exists"] is False
+    assert "rows" not in s  # only enabled/db_exists when no DB
+
+
+def test_vacuum_on_missing_db_returns_zero(_isolated_db):
+    """Running retention against a missing DB is a clean no-op, not an
+    error — operators may schedule the cron before any writes happen."""
+    assert not _isolated_db.exists()
+    assert response_log.vacuum_older_than(seconds=3600) == 0
+
+
+def test_record_never_raises_on_disk_failure(_isolated_db, monkeypatch, tmp_path):
+    """``record_consensus_round`` is fire-and-forget from consensus. A
+    disk-full / permission error must be swallowed (logged) so the
+    consensus response never fails because logging broke."""
+    _enable(monkeypatch)
+
+    # Point at a path under a file (not a directory) so mkdir fails.
+    bad_root = tmp_path / "not_a_dir"
+    bad_root.write_text("file blocking the dir creation", "utf-8")
+    monkeypatch.setenv(response_log._ENV_DB_PATH, str(bad_root / "responses.db"))
+
+    inserted = asyncio.run(
+        response_log.record_consensus_round(
+            prompt="q", query_class="general",
+            model_responses=[{"model": "m", "response_text": "r"}],
+        )
+    )
+    # The function logged and returned None (or 0) — what matters is it
+    # didn't raise. The contract is "never raises".
+    assert inserted in (None, 0)
+
+
+def test_vacuum_zero_seconds_deletes_everything(_isolated_db, monkeypatch):
+    """``vacuum_older_than(0)`` deletes every row whose ``created_at``
+    is strictly less than now — i.e. everything that has already been
+    written. Exercised so a refactor that flips the inequality trips."""
+    _enable(monkeypatch)
+    asyncio.run(
+        response_log.record_consensus_round(
+            prompt="q", query_class="general",
+            model_responses=[{"model": "m1", "response_text": "a"},
+                             {"model": "m2", "response_text": "b"}],
+        )
+    )
+    # Give created_at a chance to be strictly less than the cutoff
+    # vacuum computes (time.time() - 0 == time.time() at call time).
+    time.sleep(0.01)
+    deleted = response_log.vacuum_older_than(seconds=0)
+    assert deleted == 2
+    assert list(response_log.export_jsonl()) == []
+
+
 def test_vacuum_only_deletes_old(_isolated_db, monkeypatch):
     """``vacuum_older_than`` deletes the old row, leaves the new one."""
     _enable(monkeypatch)
