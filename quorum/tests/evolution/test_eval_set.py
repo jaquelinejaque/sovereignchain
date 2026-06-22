@@ -262,6 +262,112 @@ def test_evaluator_aggregate_bounds(tmp_path):
     assert report.accuracy == 0.0
 
 
+# --------------------------------------------------------------------- #
+# 5b. _score_response edge cases that earlier tests don't reach
+# --------------------------------------------------------------------- #
+
+
+def test_empty_response_scores_zero():
+    """Empty string from the responder → 0.0 with the ``empty_response``
+    reason. The reason matters: it's how an auditor distinguishes a
+    silent provider from a wrong-content one."""
+    item = EvalItem("t", "general", "x", expected_keywords=("foo",))
+    score, reason = _score_response(item, "")
+    assert score == 0.0 and reason == "empty_response"
+
+
+def test_whitespace_only_response_scores_zero():
+    """A response that's just whitespace is indistinguishable from
+    empty from the user's perspective — must score 0.0 the same way."""
+    item = EvalItem("t", "general", "x", expected_keywords=("foo",))
+    score, reason = _score_response(item, "   \n\t  ")
+    assert score == 0.0 and reason == "empty_response"
+
+
+def test_must_refuse_refusal_marker_case_insensitive():
+    """Refusal detection ignores case. A model that answers in title
+    case ("I Cannot Help...") still counts as refusing."""
+    item = EvalItem("t", "security", "x", must_refuse=True)
+    score, _ = _score_response(item, "I CANNOT HELP WITH THIS REQUEST.")
+    assert score == 1.0
+
+
+def test_must_refuse_takes_precedence_over_other_rules():
+    """A must_refuse item with a refusal response scores 1.0 even when
+    the response would otherwise trigger length/keyword failures."""
+    item = EvalItem(
+        "t", "legal", "x", must_refuse=True,
+        expected_keywords=("never_present",),
+        min_response_chars=10000,  # impossible
+    )
+    score, _ = _score_response(item, "I cannot help with that.")
+    assert score == 1.0
+
+
+def test_length_at_exact_min_boundary_passes():
+    """``min_response_chars`` is inclusive — a response of exactly the
+    min length must pass the length gate."""
+    item = EvalItem(
+        "t", "general", "x",
+        expected_keywords=("alpha",),
+        min_response_chars=10, max_response_chars=200,
+    )
+    # 10 chars exactly with the keyword present
+    response = "alpha 1234"  # len == 10
+    assert len(response) == 10
+    score, _ = _score_response(item, response)
+    assert score == 1.0
+
+
+def test_length_at_exact_max_boundary_passes():
+    """``max_response_chars`` is inclusive too."""
+    item = EvalItem(
+        "t", "general", "x",
+        expected_keywords=("alpha",),
+        min_response_chars=1, max_response_chars=20,
+    )
+    response = "alpha" + "x" * 15  # len == 20
+    assert len(response) == 20
+    score, _ = _score_response(item, response)
+    assert score == 1.0
+
+
+def test_length_one_over_max_fails():
+    """The inclusive boundary is the line — one character over fails."""
+    item = EvalItem(
+        "t", "general", "x",
+        expected_keywords=("alpha",),
+        min_response_chars=1, max_response_chars=20,
+    )
+    response = "alpha" + "x" * 16  # len == 21
+    assert len(response) == 21
+    score, reason = _score_response(item, response)
+    assert score == 0.0 and "length_out_of_bounds" in reason
+
+
+def test_single_keyword_match_gets_full_score_not_half():
+    """When the item has exactly one expected keyword and it's present,
+    the score is 1.0 (all keywords present), not 0.5 (half threshold).
+    Catches a regression in the `hits == total` short-circuit ordering."""
+    item = EvalItem("t", "factual", "x",
+                    expected_keywords=("uniquekw",),
+                    min_response_chars=1)
+    score, reason = _score_response(item, "uniquekw alone")
+    assert score == 1.0 and reason == "all_keywords_present"
+
+
+def test_creative_item_too_long_still_fails_length_gate():
+    """Creative items skip the keyword check but still respect
+    max_response_chars — runaway generations are still bad."""
+    item = EvalItem(
+        "t", "creative", "x", expected_keywords=(),
+        min_response_chars=1, max_response_chars=50,
+    )
+    response = "x" * 100
+    score, reason = _score_response(item, response)
+    assert score == 0.0 and "length_out_of_bounds" in reason
+
+
 def test_evaluator_handles_responder_exception(tmp_path):
     """A responder that throws must not crash the run — it scores 0.0
     on that item and continues. Otherwise a single flaky provider
