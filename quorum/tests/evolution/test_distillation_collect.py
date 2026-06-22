@@ -26,7 +26,6 @@ Behaviours under contract:
 
 from __future__ import annotations
 
-import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -205,6 +204,88 @@ async def test_collect_drops_records_without_timestamp(tmp_path):
     _write_log(pipe.log_path, [rec])
     out = await pipe.collect_distillation_candidates(
         since=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_collect_drops_records_with_unparseable_timestamp(tmp_path):
+    """A record whose ``timestamp`` field can't be parsed as ISO 8601
+    must drop quietly, not abort the read. Real production logs have
+    accumulated junk over time."""
+    pipe = _pipeline(tmp_path)
+    rec = _record()
+    rec["timestamp"] = "yesterday-ish"
+    _write_log(pipe.log_path, [rec])
+    out = await pipe.collect_distillation_candidates(
+        since=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_collect_accepts_naive_iso_timestamp_as_utc(tmp_path):
+    """A timestamp without timezone info ("2026-06-22T10:00:00") must
+    be interpreted as UTC, matching the docstring contract. Otherwise
+    naive logs would unpredictably drift in/out of the `since` window."""
+    pipe = _pipeline(tmp_path)
+    now = datetime.now(timezone.utc)
+    rec = _record(when=now)
+    # Strip tz info: "2026-06-22T10:00:00+00:00" → "2026-06-22T10:00:00"
+    rec["timestamp"] = rec["timestamp"].replace("+00:00", "")
+    _write_log(pipe.log_path, [rec])
+    out = await pipe.collect_distillation_candidates(
+        since=now - timedelta(days=1),
+    )
+    assert len(out) == 1
+
+
+@pytest.mark.asyncio
+async def test_collect_uses_alt_field_names_query_and_agreement_score(tmp_path):
+    """``_record_to_sample`` reads two key shapes for prompt and confidence
+    (``prompt`` OR ``query``; ``confidence`` OR ``agreement_score``).
+    Coverage prevents a rename from quietly dropping the alt path."""
+    pipe = _pipeline(tmp_path)
+    rec = _record()
+    # Move prompt -> query, confidence -> agreement_score
+    rec["query"] = rec.pop("prompt")
+    rec["agreement_score"] = rec.pop("confidence")
+    _write_log(pipe.log_path, [rec])
+    out = await pipe.collect_distillation_candidates(
+        since=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    assert len(out) == 1
+    assert out[0].query == "q"
+
+
+@pytest.mark.asyncio
+async def test_collect_drops_record_with_empty_prompt(tmp_path):
+    """An empty prompt produces a useless sample; drop it before it
+    hits the trainer."""
+    pipe = _pipeline(tmp_path)
+    rec = _record(prompt="")
+    _write_log(pipe.log_path, [rec])
+    out = await pipe.collect_distillation_candidates(
+        since=datetime.now(timezone.utc) - timedelta(days=1),
+    )
+    assert out == []
+
+
+@pytest.mark.asyncio
+async def test_collect_skips_models_with_error_or_empty_response(tmp_path):
+    """A model that errored or returned an empty string is NOT a
+    frontier responder for the min_pair_count test."""
+    pipe = _pipeline(tmp_path)
+    rec = _record(models=[
+        {"name": "anthropic", "response": "good"},
+        {"name": "openai", "response": "", "error": "rate_limited"},
+        {"name": "gemini", "response": ""},
+        # Two would have qualified; only one valid.
+    ])
+    _write_log(pipe.log_path, [rec])
+    out = await pipe.collect_distillation_candidates(
+        since=datetime.now(timezone.utc) - timedelta(days=1),
+        min_pair_count=2,
     )
     assert out == []
 
