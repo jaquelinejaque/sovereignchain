@@ -916,6 +916,41 @@ async def consensus(
     except Exception as e:  # noqa: BLE001
         logger.debug("hsp.black_box append skipped (%s)", e)
 
+    # Raw response logging — opt-in via QUORUM_LOG_RESPONSES=1. Persists
+    # each (query_hash, model, response_text) tuple so the dataset is
+    # re-analysable later in a different embedding space without
+    # paying for the LLM calls again. No-op when the env flag is off,
+    # so a fresh clone sees zero behaviour change. Same fail-safe
+    # contract as the audit chain above: never block the response.
+    try:
+        from quorum.evolution.response_log import (
+            is_enabled as _resp_log_enabled,
+            record_consensus_round as _resp_log_record,
+        )
+        if _resp_log_enabled():
+            model_rows = [
+                {
+                    "model": r.name,
+                    "response_text": r.response,
+                    "latency_ms": r.latency_ms,
+                    "cost_usd": r.cost_usd,
+                    "weight": r.weight,
+                }
+                for r in valid
+            ]
+            # Fire-and-forget so the disk write never delays the
+            # consensus answer the caller is waiting on.
+            asyncio.create_task(
+                _resp_log_record(
+                    prompt=prompt,
+                    query_class=query_class,
+                    model_responses=model_rows,
+                    canonical_model=canonical.name,
+                )
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("response_log skipped (%s)", e)
+
     # Synthetic-data ingest (opt-in, fire-and-forget so the response is not
     # blocked by a JSONL disk write). Default is opt_in=False for privacy —
     # the caller has to explicitly request it per-query.
