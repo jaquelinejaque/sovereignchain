@@ -31,7 +31,6 @@ from pathlib import Path
 import pytest
 
 from quorum.evolution.diversity import (
-    MIN_HEBBIAN_SAMPLES,
     _pearson,
     compute_diversity_quality_correlation,
     select_diverse_quality_panel,
@@ -339,6 +338,66 @@ def test_panel_all_equal_elo_collapses_to_single_pick(tmp_path):
         hebbian_db=h, competition_db=c,
     )
     assert len(panel) == 1
+
+
+def test_read_hebbian_skips_zero_count_rows(tmp_path):
+    """A pair stored with count=0 must be dropped before the avg_sim
+    division — otherwise we hit a ZeroDivisionError in production."""
+    h = tmp_path / "h.db"
+    c = tmp_path / "c.db"
+    # Insert a degenerate row manually (similarity_sum=5.0, count=0)
+    import sqlite3
+    conn = sqlite3.connect(h)
+    try:
+        conn.execute(
+            """CREATE TABLE coactivation (
+                model_a TEXT, model_b TEXT,
+                similarity_sum REAL, count INTEGER,
+                last_updated REAL DEFAULT 0,
+                PRIMARY KEY (model_a, model_b)
+            )"""
+        )
+        # We need min_samples to be <=0 so the SQL filter doesn't drop
+        # this row before the python-level guard fires — exercise the
+        # `if n <= 0: continue` branch specifically.
+        conn.execute(
+            "INSERT INTO coactivation VALUES (?, ?, ?, ?, 0)",
+            ("a", "b", 5.0, 0),
+        )
+        conn.execute(
+            "INSERT INTO coactivation VALUES (?, ?, ?, ?, 0)",
+            ("c", "d", 50.0, 50),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    _make_competition(c, {"a": 1500.0, "b": 1700.0, "c": 1500.0, "d": 1700.0})
+
+    result = compute_diversity_quality_correlation(
+        hebbian_db=h, competition_db=c, min_samples=0,
+    )
+    assert result.n_pairs == 1
+    pair = result.observations[0]
+    assert {pair.model_a, pair.model_b} == {"c", "d"}
+
+
+def test_correlation_dedups_reversed_pair_orders(tmp_path):
+    """The Hebbian store records (A,B) and (B,A) for some rows; the
+    joined correlation must NOT count the same pair twice."""
+    h = tmp_path / "h.db"
+    c = tmp_path / "c.db"
+    _make_competition(c, {"a": 1500.0, "b": 1700.0})
+    _make_hebbian(
+        h,
+        [
+            ("a", "b", 0.90, 50),
+            ("b", "a", 0.90, 50),  # reversed duplicate
+        ],
+    )
+    result = compute_diversity_quality_correlation(
+        hebbian_db=h, competition_db=c,
+    )
+    assert result.n_pairs == 1
 
 
 def test_panel_clustered_model_without_elo_excluded(tmp_path):
