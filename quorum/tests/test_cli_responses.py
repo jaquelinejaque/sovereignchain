@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 
 import pytest
 from typer.testing import CliRunner
@@ -127,6 +126,39 @@ def test_vacuum_rejects_zero_days(_isolated_db, monkeypatch):
     _enable(monkeypatch)
     _seed_rows()
     result = runner.invoke(app, ["vacuum", "--older-than-days", "0", "--yes"])
+    assert result.exit_code != 0
+
+
+def test_export_since_accepts_iso_date(_isolated_db, monkeypatch):
+    """``--since 2020-01-01`` (ISO date) parses without raising. Rows
+    written today are all after that date, so the row count matches
+    the no-filter case."""
+    _enable(monkeypatch)
+    _seed_rows()
+    no_filter = runner.invoke(app, ["export"])
+    with_old_since = runner.invoke(app, ["export", "--since", "2020-01-01"])
+    assert no_filter.exit_code == 0
+    assert with_old_since.exit_code == 0
+    assert len([l for l in with_old_since.output.splitlines() if l.strip()]) == 2
+
+
+def test_export_until_in_far_past_yields_zero_rows(_isolated_db, monkeypatch):
+    """``--until 1970-01-02`` is so early it excludes every row. Zero
+    rows on stdout, exit 0."""
+    _enable(monkeypatch)
+    _seed_rows()
+    result = runner.invoke(app, ["export", "--until", "1970-01-02"])
+    assert result.exit_code == 0
+    lines = [l for l in result.output.splitlines() if l.strip()]
+    assert lines == []
+
+
+def test_export_rejects_unparseable_since(_isolated_db, monkeypatch):
+    """A junk --since must surface as a CLI parameter error, not silently
+    pass None through and return everything."""
+    _enable(monkeypatch)
+    _seed_rows()
+    result = runner.invoke(app, ["export", "--since", "not-a-date"])
     assert result.exit_code != 0
 
 
