@@ -1,10 +1,15 @@
 {
   "name": "quorum-vscode",
-  "displayName": "Quorum — Multi-LLM Consensus",
-  "description": "Run consensus queries across 8+ LLMs (Claude, GPT, Gemini, Llama, DeepSeek, Mistral, Qwen, Phi) directly from VS Code. Semantic agreement scoring. BYOK.",
-  "version": "0.1.2",
+  "displayName": "Quorum — Multi-LLM Consensus (Pro)",
+  "description": "Run a single prompt across 14+ frontier LLMs (Claude, GPT, Gemini, Llama, DeepSeek, Mistral, Qwen, Cohere, NVIDIA) from VS Code. Tamper-evident traceability log, semantic agreement scoring, BYOK. Requires Pro license.",
+  "version": "0.2.0",
   "publisher": "sovereignchain",
-  "license": "Apache-2.0",
+  "license": "SEE LICENSE IN LICENSE",
+  "pricing": "Trial",
+  "qna": "marketplace",
+  "sponsor": {
+    "url": "https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j"
+  },
   "homepage": "https://github.com/jaquelinejaque/sovereignchain",
   "repository": {
     "type": "git",
@@ -65,8 +70,8 @@
         "title": "Quorum: Open settings"
       },
       {
-        "command": "quorum.getFreeKey",
-        "title": "Quorum: Get Free API Key (signup)"
+        "command": "quorum.getProLicense",
+        "title": "Quorum: Get Pro License"
       }
     ],
     "menus": {
@@ -94,7 +99,7 @@
         "quorum.apiKey": {
           "type": "string",
           "default": "",
-          "description": "X-Quorum-API-Key (leave empty to use BYOK mode)"
+          "description": "Paid Pro license key (£149/mo, buy via Stripe Checkout — run 'Quorum: Get Pro License'). Required — there is no free tier."
         },
         "quorum.providers": {
           "type": "array",
@@ -126,7 +131,7 @@
     "vscode:prepublish": "npm run build",
     "build": "node esbuild.js --production",
     "watch": "node esbuild.js --watch",
-    "package": "vsce package --out quorum-vscode-0.1.2.vsix"
+    "package": "vsce package --out quorum-vscode-0.2.0.vsix"
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0",

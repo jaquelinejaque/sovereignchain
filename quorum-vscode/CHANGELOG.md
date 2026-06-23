@@ -4,6 +4,38 @@ All notable changes to the **Quorum** VS Code extension are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and
 this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-06-21
+
+### Changed (breaking)
+- **Paid commercial product.** Quorum no longer ships a free tier with 100
+  queries/month. Use requires a paid Pro license — **£149/mo** via
+  [Stripe Checkout](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j).
+  Enterprise pricing on request. The API gate
+  (`/v1/license/validate`) rejects unlicensed traffic.
+- **License: Apache-2.0 → FSL-1.1** (Functional Source License). Source
+  stays readable for internal review and code inspection; commercial use
+  in VS Code is paid. Each release converts to Apache-2.0 two years after
+  publication.
+- Marketplace `pricing` flag set to **Trial** — install is free, the badge
+  signals the extension requires a paid license to function.
+- Display name updated to **"Quorum — Multi-LLM Consensus (Pro)"**.
+
+### Added
+- New command `Quorum: Get Pro License` — opens the Stripe Checkout
+  for Quorum Pro (£149/mo) so a new user can purchase without leaving
+  VS Code. Wired into `ensureKeyOrPrompt` so an unlicensed user trying to
+  run any Quorum command sees a "Get Pro License / Open Settings" toast.
+- README rewritten as a clear commercial product page (target buyer:
+  regulated dev teams that need a defensible tamper-evident traceability log).
+
+### Removed
+- `quorum.getFreeKey` command. Replaced by `quorum.getProLicense`.
+- All copy referencing a free tier, free signup, or 100 free queries.
+
+### Notes
+- The 0.1.x line is end-of-life. Users still on 0.1.2 see "license required"
+  prompts after upgrading.
+
 ## [0.1.2] — 2026-06-18
 
 ### Added

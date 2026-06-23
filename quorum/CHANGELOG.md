@@ -2,7 +2,29 @@
 
 All notable changes to Quorum are documented here. Format loosely follows Keep-a-Changelog; versioning follows SemVer.
 
-## 0.2.3 — HSP Black Box audit chain (2026-06-20)
+> **Legal terminology notice (added 2026-06-23, applies retroactively to every entry below).**
+> Earlier entries in this changelog describe HSP features as an "audit chain", "compliance primitive", "compliance audit", "certificate" or "auto-certification". From version 0.2.4 onwards the canonical terminology is **tamper-evident traceability log**, **readiness toolkit**, **advisory evidence record**, and **EU AI Act Article 14 readiness assessment**.
+>
+> The renaming is **strictly vocabulary** — no feature changes — and corrects a misrepresentation risk under Fraud Act 2006 s.2 and the Consumer Protection from Unfair Trading Regulations 2008 (UK). Quorum and Sovereign Chain Ltd are NOT a Notified Body under Article 31 of Regulation (EU) 2024/1689; the toolkit is advisory only. Final conformity assessment remains the responsibility of the AI system provider (internal, Annex VI) or a designated Notified Body (external, Annex VII).
+>
+> Function names, CLI binaries (`quorum-audit`) and SQLite column names that contain "audit" / "cert" are preserved for backward compatibility; they are documented in the relevant module docstrings.
+
+## 0.2.4 — Legal terminology clean-up (2026-06-23)
+
+### Vocabulary clean-up (no behavioural change)
+- README, landing pages, VS Code extension, `hsp/black_box.py` and `hsp/ai_act_cert.py` docstrings updated to remove every client-facing use of "audit", "certificate", "certification", "compliance audit", "audit-grade compliance", and "auto-certification".
+- PDF evidence record (formerly "EU AI Act Compliance Certificate") now titled **"EU AI Act Readiness — Evidence Record"** with a mandatory header banner and footer disclaimer citing Article 31 and Annex VI/VII.
+- New legal disclaimer footer on quorum-ai.dev landing page.
+- New `quorum.proactive` module exposing analyst pipeline (signal ingest / enrich / analyse / draft / notify).
+
+### Why this matters
+- Sovereign Chain Ltd is not a Notified Body. Selling the Quorum toolkit as a "compliance audit" would expose the company to UK Fraud Act 2006 s.2 (false representation) and CPUTR 2008 (unfair commercial practices).
+- The corrected wording lets the product remain valuable (advisory toolkit for EU AI Act Annex VI self-assessment) while keeping the company legally protected.
+
+### Companion artefacts
+- New contract template `04-quorum-readiness-services-agreement.md` (with §1.3, §1.4, §3, §9, §10.2 and §15 glossary as the mandatory protection clauses).
+
+## 0.2.3 — HSP Black Box tamper-evident traceability log (2026-06-20)
 
 ### Compliance primitive (EU AI Act Article 14 / SOC2 CC7.2)
 - New module: hsp/black_box.py — append-only SHA-256 hash chain over consensus calls

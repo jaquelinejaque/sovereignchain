@@ -1,12 +1,12 @@
 [project]
 name = "quorum-ai"
-version = "0.2.3"
+version = "0.2.4"
 description = "Multi-LLM consensus engine with semantic agreement and self-evolution. Source-available under FSL-1.1-Apache-2.0."
 authors = [{ name = "Jaqueline Martins", email = "jaqueline@hsp-protocol.com" }]
 license = "LicenseRef-FSL-1.1-Apache-2.0"
 readme = "README.md"
 requires-python = ">=3.10"
-keywords = ["llm", "consensus", "multi-model", "ai", "orchestration", "ensemble", "audit", "fact-grounding", "compliance"]
+keywords = ["llm", "consensus", "multi-model", "ai", "orchestration", "ensemble", "traceability", "fact-grounding", "eu-ai-act-readiness"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -29,6 +29,7 @@ dependencies = [
     "slowapi>=0.1.9",
     "cryptography>=42.0",
     "google-cloud-firestore>=2.16",
+    "litellm>=1.89.3",
 ]
 
 [project.optional-dependencies]
@@ -47,6 +48,7 @@ quorum = "quorum.cli:app"
 quorum-server = "quorum.server.main:run"
 quorum-feedback = "quorum.evolution.feedback_cli:app"
 quorum-audit = "quorum.hsp.audit_cli:app"
+quorum-espelho = "quorum.agents.espelho_cli:app"
 
 [project.urls]
 Homepage = "https://github.com/jaquelinejaque/sovereignchain"

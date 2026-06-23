@@ -41,7 +41,7 @@ Full guide: [docs/CONTEXT_PROFILES.md](docs/CONTEXT_PROFILES.md) (also documents
 - **Adversarial revision**: round 2 where models see each other's answers and can change their mind
 - **13 self-evolution loops**: RLHF, Hebbian, distillation, router, memory, meta-learning, model-vs-model, A/B testing, synthetic data, federated, self-prompting, adversarial, architecture search
 - **HSP gate** on every high-stakes decision (patent pending)
-- **Auto-certification** for EU AI Act 2026-08 — every query generates an audit-ready PDF
+- **EU AI Act readiness toolkit** for the 2026-08 enforcement window — every query generates a tamper-evident PDF record as internal evidence material (advisory; not a conformity assessment)
 - **Hosted API + BYOK**: run locally with your own keys OR call our managed FastAPI with metered billing
 - **Switzerland of LLMs**: the incumbents structurally can't sell this — they'd commoditize themselves
 
@@ -95,9 +95,9 @@ For multi-user accounts, regulated workloads, or the EU AI Act PDF certification
 
 | Tier | Price / mo | Included | Overage |
 |------|------------|----------|---------|
-| Team | £199 | 25,000 queries, federated loop on, audit log retention 90d | £0.008 / query |
+| Team | £199 | 25,000 queries, federated loop on, traceability log retention 90d | £0.008 / query |
 | Enterprise | £1,499 | Unlimited, SLA 99.9%, SSO, on-prem, training data licence | Custom |
-| Compliance add-on | +£500 | Per-query EU AI Act PDF certificate, signed, hash-chained | — |
+| Readiness add-on | +£500 | Per-query EU AI Act PDF evidence record, signed, hash-chained (advisory toolkit) | — |
 
 Stripe-backed. Webhook handler with in-memory fallback so tests run without keys. See `billing/stripe_billing.py`.
 
@@ -111,7 +111,7 @@ FastAPI server in `server/main.py`. Run locally with `quorum-server` or deploy t
 | `POST` | `/v1/consensus/stream` | Same, server-sent events as each model returns |
 | `GET`  | `/v1/models` | List enabled providers + per-tenant overrides |
 | `POST` | `/v1/feedback` | Thumbs up/down on a past query — feeds RLHF loop |
-| `GET`  | `/v1/cert/{query_id}` | Download EU AI Act PDF certificate |
+| `GET`  | `/v1/cert/{query_id}` | Download EU AI Act PDF evidence record (advisory) |
 | `POST` | `/v1/billing/checkout` | Create Stripe checkout session for tier upgrade |
 | `POST` | `/v1/billing/webhook` | Stripe webhook (signature-verified) |
 | `POST` | `/v1/hsp/webhook` | HSP gate decision callback (patent PCT/US26/11908) |
@@ -119,28 +119,30 @@ FastAPI server in `server/main.py`. Run locally with `quorum-server` or deploy t
 | `GET`  | `/healthz` | Liveness / readiness |
 | `GET`  | `/metrics` | Prometheus scrape endpoint |
 
-## EU AI Act certification (2026-08 deadline)
+## EU AI Act readiness toolkit (2026-08 deadline)
 
-The EU AI Act enforcement window starts 2026-08-02 for general-purpose AI systems and 2027-08-02 for high-risk uses. Quorum auto-generates a per-query audit certificate that satisfies Art. 13 (transparency) and Art. 12 (record-keeping) obligations:
+The EU AI Act enforcement window starts 2026-08-02 for general-purpose AI systems and 2027-08-02 for high-risk uses. Quorum generates a per-query PDF **evidence record** that helps providers prepare internal documentation referenced by Art. 13 (transparency) and Art. 12 (record-keeping) obligations:
 
 - Every model that ran, its weight, its raw response
 - Consensus method (semantic / lexical), threshold used
 - HSP gate decision + signing key
 - Cost paid, latency, tokens — for energy-use disclosure
-- SHA-256 chain link to previous certificate in tenant (tamper-evident)
+- SHA-256 chain link to previous record in tenant (tamper-evident)
 
 PDF generated via reportlab. Stored in tenant bucket; downloadable via `/v1/cert/{query_id}`. Code in `hsp/ai_act_cert.py`.
 
-## Audit & Compliance — HSP Black Box
+> **Legal notice.** Quorum is an **advisory technical toolkit**. It does **not** perform a conformity assessment under Regulation (EU) 2024/1689 and Sovereign Chain Ltd is **not a Notified Body** under Article 31 of that Regulation. Final conformity assessment remains the responsibility of the AI system provider (internal, Annex VI) or a designated Notified Body (external, Annex VII).
+
+## Tamper-evident traceability log — HSP Black Box
 
 Every consensus() call appends to a tamper-evident SHA-256 hash chain at
-~/.quorum/audit_chain.db. Auditors can verify integrity offline:
+~/.quorum/audit_chain.db. Operators and their auditors can verify integrity offline:
 
   quorum-audit verify-chain     # exit 0 = intact, 2 = broken
   quorum-audit status           # row count + first/last timestamps
   quorum-audit export --since 2026-01-01T00:00:00Z --out /tmp/audit.jsonl
 
-EU AI Act Article 14 / SOC2 CC7.2 compliance primitive. See
+(The `quorum-audit` binary name is preserved for backward compatibility; the underlying capability is a tamper-evident traceability log, not a regulatory audit.) Helpful for evidence collection referenced by EU AI Act Article 14 (human oversight) and SOC2 CC7.2 controls. See
 docs/HSP_BLACK_BOX.md for details.
 
 ## Architecture

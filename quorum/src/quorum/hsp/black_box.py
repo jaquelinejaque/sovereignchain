@@ -1,7 +1,19 @@
-"""HSP Black Box — tamper-evident audit log with hash chain.
+"""HSP Black Box — tamper-evident traceability log with hash chain.
 
-EU AI Act Article 14 ("Logs traceable in chronological order") +
-SOC2 CC7.2 (system monitoring) compliance primitive.
+Internal evidence material referenced by EU AI Act Article 14 ("Logs
+traceable in chronological order") and SOC2 CC7.2 (system monitoring).
+
+LEGAL NOTICE: this module produces a tamper-evident traceability log
+as advisory evidence material. It is NOT a conformity assessment under
+Regulation (EU) 2024/1689, and Sovereign Chain Ltd is NOT a Notified
+Body designated under Article 31 of that Regulation. Final conformity
+assessment remains the responsibility of the AI system provider
+(internal, Annex VI) or a designated Notified Body (external, Annex VII).
+
+The table is named `audit_log` and helper functions are named
+`append`/`verify_chain` for backward compatibility with code written
+prior to the 0.2.4 vocabulary clean-up; the underlying capability is
+a tamper-evident traceability log, not a regulatory audit.
 
 Architecture:
   - SQLite append-only table audit_log
@@ -9,19 +21,19 @@ Architecture:
   - this_hash = SHA256(prev_hash + payload_json + created_at_iso)
   - Chain is verifiable: walk from id=1 forward, re-hash each, compare
   - Any tampered/deleted/inserted row breaks the chain at that point
-  - Best-effort write: NEVER raises (audit failure shouldn't break consensus)
+  - Best-effort write: NEVER raises (traceability failure shouldn't break consensus)
   - 0o600 file permissions (single-user threat model — Forensic+ would need WORM FS)
 
 Why hash chain not signature:
   HMAC requires key management. Hash chain proves ordering + integrity
-  without secret material — auditor verifies offline by recomputing.
+  without secret material — anyone can verify offline by recomputing.
   Combine with weekly archive + checksum-on-archive for stronger guarantee.
 
 Usage:
   from quorum.hsp.black_box import append, verify_chain, export_jsonl
   append({"event": "consensus", "query_hash": "abc...", "confidence": 0.85})
   ok, broken_at = verify_chain()
-  export_jsonl(since_iso="2026-01-01T00:00:00Z", out_path="/tmp/audit.jsonl")
+  export_jsonl(since_iso="2026-01-01T00:00:00Z", out_path="/tmp/trace.jsonl")
 """
 
 from __future__ import annotations

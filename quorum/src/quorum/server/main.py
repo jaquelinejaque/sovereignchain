@@ -15,11 +15,16 @@
 # HSP ATTRIBUTION
 # ---------------
 # This server module exposes the hosted SaaS surface of Quorum: quota
-# enforcement, billing, audit-grade certificates. Those features are
-# Harmonised Sovereignty Protocol (HSP) gated under PCT/US26/11908.
-# The ``/v1/cert/{query_id}`` endpoint, in particular, materialises the
-# HSP-gated EU AI Act compliance certificate and is subject to the
-# additional commercial-use restrictions defined in LICENSE-HSP.
+# enforcement, billing, and the EU AI Act readiness evidence record
+# endpoint. Those features are Harmonised Sovereignty Protocol (HSP)
+# gated under PCT/US26/11908. The ``/v1/cert/{query_id}`` endpoint, in
+# particular, materialises the HSP-gated EU AI Act *advisory evidence
+# record* and is subject to the additional commercial-use restrictions
+# defined in LICENSE-HSP.
+#
+# LEGAL NOTICE: the evidence record is advisory technical material;
+# it is NOT a conformity assessment under Regulation (EU) 2024/1689
+# and Sovereign Chain Ltd is NOT a Notified Body under Article 31.
 #
 # Self-hosted, single-tenant, BYOK use remains free under Apache 2.0.
 # Commercial hosted deployment requires an HSP licence.
@@ -40,8 +45,9 @@ over the network. This module is the network surface:
 * It exposes the RLHF feedback loop (``quorum.evolution.rlhf``) as a
   public endpoint so the dashboard / SDK can post thumbs-up/down without
   needing to know about the SQLite schema underneath.
-* It exposes the EU AI Act PDF certificate endpoint, which is the
-  HSP-gated audit artefact that justifies the PRO/TEAM tier price.
+* It exposes the EU AI Act PDF evidence record endpoint, which is the
+  HSP-gated advisory artefact that justifies the PRO/TEAM tier price.
+  (Advisory only — not a conformity assessment under Reg. (EU) 2024/1689.)
 
 DESIGN CHOICES
 --------------
@@ -815,7 +821,7 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
     Quorum runs your prompt across <strong>Claude, GPT, Gemini, Llama, DeepSeek, Phi, and Mistral</strong>
     simultaneously, then scores semantic agreement to surface the answer the models converge on
     (and flag the ones where they don&rsquo;t). Bring your own API keys, self-host under Apache 2.0,
-    or use the hosted SaaS with audit-grade EU AI Act certificates.
+    or use the hosted SaaS with EU AI Act readiness toolkit (advisory evidence records).
   </p>
 
   <div class="ctas">
@@ -1714,11 +1720,11 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
         )
         return stats
 
-    # ---------- certificate (HSP-gated) -------------------------------------
+    # ---------- evidence record (HSP-gated) ---------------------------------
 
     @app.get(
         "/v1/cert/{query_id}",
-        tags=["compliance"],
+        tags=["readiness"],
         responses={
             200: {"content": {"application/pdf": {}, "text/markdown": {}}},
             404: {"description": "query_id not found in cache"},
@@ -1729,19 +1735,30 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
         request: Request,
         api_record: APIKeyRecord = Depends(_require_api_key),
     ) -> FileResponse:
-        """Return the EU AI Act compliance certificate for a past query.
+        """Return the EU AI Act readiness PDF evidence record for a past query.
+
+        Advisory toolkit only — not a conformity assessment under Regulation
+        (EU) 2024/1689. Sovereign Chain Ltd is not a Notified Body under
+        Article 31. Final conformity assessment remains the responsibility
+        of the AI system provider (internal, Annex VI) or a designated
+        Notified Body (external, Annex VII).
+
+        The endpoint path `/v1/cert/...` and function name `get_cert` are
+        kept for backward compatibility with clients pinned to 0.2.x;
+        semantically this returns an advisory evidence record, not a
+        regulatory certificate.
 
         HSP NOTE
         --------
-        This endpoint materialises a certificate that references the HSP
-        protocol (PCT/US26/11908). Self-hosted use is free under Apache
-        2.0; commercial hosted deployment of the certificate format
-        requires an HSP licence (see LICENSE-HSP).
+        This endpoint materialises an evidence record that references the
+        HSP protocol (PCT/US26/11908). Self-hosted use is free under Apache
+        2.0; commercial hosted deployment of the record format requires an
+        HSP licence (see LICENSE-HSP).
 
-        WHY we render lazily on read: PDFs are heavy (~50KB each) and
-        most queries are never audited. Rendering at request time keeps
-        the consensus hot path lean. We cache the rendered file on disk
-        so repeat requests are O(disk read).
+        WHY we render lazily on read: PDFs are heavy (~50KB each) and most
+        queries are never retrieved. Rendering at request time keeps the
+        consensus hot path lean. We cache the rendered file on disk so
+        repeat requests are O(disk read).
         """
         state = _get_state(request)
         record = await state.recall_query(query_id)
@@ -1755,7 +1772,7 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
         if api_record.tier == "free":
             raise HTTPException(
                 status_code=status.HTTP_402_PAYMENT_REQUIRED,
-                detail="EU AI Act certificates are a paid feature (PRO+)",
+                detail="EU AI Act readiness evidence records are a paid feature (PRO+)",
             )
 
         out_path = state.cert_dir / f"{query_id}.pdf"
@@ -1765,7 +1782,7 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
             decision = {
                 "approved": True,
                 "decision_id": f"local-{query_id}",
-                "reason": "Local certificate (no HSP webhook configured)",
+                "reason": "Local evidence record (no HSP webhook configured)",
                 "signed_at": datetime.now(timezone.utc).isoformat(),
                 "signature": "0" * 64,
                 "audit_trail_url": "",
@@ -1783,7 +1800,7 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
                 logger.exception("cert generation failed for %s", query_id)
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="certificate generation failed",
+                    detail="evidence record generation failed",
                 ) from exc
             final_path = Path(meta["pdf_path"])
             media_type = (

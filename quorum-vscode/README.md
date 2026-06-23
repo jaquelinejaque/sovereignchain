@@ -1,67 +1,58 @@
-# Quorum — Multi-LLM Consensus for VS Code
+# Quorum — Multi-LLM Consensus for VS Code (Pro)
 
-Quorum runs a single prompt across 8+ frontier LLMs (Claude, GPT, Gemini, Llama, DeepSeek, Mistral, Qwen, Phi) directly inside VS Code, scores the answers for semantic agreement, and surfaces exactly where the models disagree — because disagreement between strong models is the most valuable signal you can get before shipping code, taking a security call, or making a regulatory commitment. Backed by the hosted [Quorum](https://quorum-ai.dev) consensus engine; BYOK — you bring your provider keys, Quorum charges only for orchestration.
+Quorum runs a single prompt across **14+ frontier LLMs** — Claude, GPT, Gemini, Llama, DeepSeek, Mistral, Qwen, Cohere, NVIDIA — directly inside VS Code, scores the answers for semantic agreement, and surfaces exactly where the models disagree. Disagreement between strong models is the most valuable signal you can get before shipping code, taking a security call, or making a regulatory commitment.
+
+Backed by the hosted [Quorum](https://quorum-ai.dev) consensus engine with a **tamper-evident HSP traceability log** — every consensus event sealed with a SHA-256 hash chain, useful as advisory evidence material for internal review and EU AI Act readiness documentation.
+
+> **Paid commercial product — £149/mo.** Quorum is source-available under FSL-1.1 and requires a paid Pro license for use in VS Code. No free tier, no trial queries. [Buy Pro](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j).
+
+## Why Quorum
+
+Single-model answers are a single point of failure. When Claude, GPT, and Gemini all return the same answer, you have evidence. When they disagree, you have a flag — and you can decide whether to escalate, re-prompt, or stop. Quorum makes that signal first-class: weighted agreement scoring, per-model breakdown, total cost, and a tamper-evident traceability log for everything you submit.
+
+Built for:
+
+- **Regulated dev teams** (finance, healthcare, legal) — every consensus result is sealed in an HSP traceability log you can present as advisory evidence material during internal review or EU AI Act Annex VI self-assessment preparation.
+- **Security engineers** — adversarial review where one model's miss is another model's catch.
+- **Researchers and consultants** — defensible answers with a paper trail.
+
+> ⚖️ **Legal notice.** Quorum is an advisory technical toolkit. It is not a conformity assessment under Regulation (EU) 2024/1689 and Sovereign Chain Ltd is not a Notified Body under Article 31. Final conformity assessment remains the responsibility of the AI system provider (internal, Annex VI) or a designated Notified Body (external, Annex VII).
 
 ## Get started in 3 steps
 
-1. **Get a free API key (no card)** — visit [quorum-ai.dev/signup](https://quorum-ai.dev/signup), enter your email, get 100 free consensus queries per month. Or run `Quorum: Get Free API Key` from the Command Palette after install — it opens the signup page in your browser.
-2. **Open Settings** (`Cmd+,` / `Ctrl+,`), search `quorum`, paste the key into `quorum.apiKey`.
-3. **Register your provider keys** so Quorum has models to orchestrate. Bring keys for Claude / GPT / Gemini / Mistral / etc. — the more you register, the richer the consensus. One command:
+1. **Buy a Pro license — £149/mo** via [Stripe Checkout](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j), or run `Quorum: Get Pro License` from the Command Palette after install.
+2. **Open Settings** (`Cmd+,` / `Ctrl+,`), search `quorum`, paste your license key into `quorum.apiKey`.
+3. **Register your provider keys** so Quorum has models to orchestrate. Bring your own keys — the more you register, the richer the consensus.
 
    ```bash
    curl -X POST https://api.quorum-ai.dev/v1/customer/keys \
-     -H "X-Quorum-API-Key: YOUR_QUORUM_KEY" \
+     -H "X-Quorum-API-Key: YOUR_PRO_LICENSE" \
      -H "Content-Type: application/json" \
      -d '{"anthropic":"sk-ant-...","openai":"sk-...","gemini":"..."}'
    ```
 
-   Supported: anthropic, openai, gemini, nvidia (free tier!), mistral, cohere, grok, dashscope, replicate, deepseek, zhipu, moonshot. Each key is encrypted server-side (Fernet KEK). You pay your providers directly.
-
-## Install via Marketplace
-
-`sovereignchain.quorum-vscode` — search "Quorum Multi-LLM" in VS Code Extensions, or install from [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=sovereignchain.quorum-vscode).
-
-Or build from source:
-
-```bash
-git clone https://github.com/jaquelinejaque/sovereignchain.git
-cd sovereignchain/quorum-vscode
-npm install
-npm run build
-npm run package
-code --install-extension quorum-vscode-0.1.2.vsix
-```
-
-Or build from source:
-
-```bash
-git clone https://github.com/jaquelinejaque/sovereignchain.git
-cd sovereignchain/quorum-vscode
-npm install
-npm run build
-npm run package
-code --install-extension quorum-vscode-0.1.0.vsix
-```
+   Supported: anthropic, openai, gemini, nvidia, mistral, cohere, grok, dashscope, replicate, deepseek, zhipu, moonshot. Keys are encrypted server-side (Fernet KEK). You pay your providers directly; Quorum charges only for orchestration.
 
 ## Commands
 
 | Command | What it does |
 |---|---|
-| `Quorum: Ask` | Free-form prompt, returns a consensus answer in a side panel |
-| `Quorum: Ask about selection` | Combines your selection with a follow-up question |
+| `Quorum: Ask` | Free-form prompt, returns consensus answer in a side panel |
+| `Quorum: Ask about selection` | Highlighted code + your follow-up question |
 | `Quorum: Explain selected code` | Multi-model explanation of the highlighted code |
-| `Quorum: Review selected code (bugs/security)` | Adversarial code review across all configured models |
-| `Quorum: Compare two implementations` | Pick two snippets, get a structured side-by-side comparison |
-| `Quorum: Open settings` | Jumps straight to the Quorum settings page |
+| `Quorum: Review selected code (bugs/security)` | Adversarial review across all configured models |
+| `Quorum: Compare two implementations` | Pick two snippets, get a structured A/B verdict |
+| `Quorum: Get Pro License` | Opens the pricing page |
+| `Quorum: Open settings` | Jumps to the Quorum settings page |
 
-The **Explain** and **Review** commands also appear in the editor right-click menu whenever you have a selection.
+The **Explain** and **Review** commands also appear in the editor right-click menu when you have a selection.
 
 ## Settings
 
 | Setting | Default | Description |
 |---|---|---|
-| `quorum.endpoint` | `https://quorum-ai.dev` | Quorum server endpoint |
-| `quorum.apiKey` | `""` | `X-Quorum-API-Key` header (leave empty to use BYOK mode) |
+| `quorum.endpoint` | `https://api.quorum-ai.dev` | Quorum API endpoint |
+| `quorum.apiKey` | `""` | **Paid Pro license key** from quorum-ai.dev/pricing. Required. |
 | `quorum.providers` | `["gemini-flash","llama-3.3-70b","deepseek-v3","claude-sonnet-4-6"]` | Models to query in parallel |
 | `quorum.maxLatencyMs` | `30000` | Per-query timeout in milliseconds |
 | `quorum.showCostInline` | `true` | Show per-query cost inline in the result panel |
@@ -70,30 +61,26 @@ The **Explain** and **Review** commands also appear in the editor right-click me
 
 1. Highlight a function in any editor (TypeScript, Python, Rust, anything).
 2. Right-click → **Quorum: Review selected code (bugs/security)**.
-3. Quorum fans the snippet out to all configured models, scores their agreement, and renders a panel showing the consensus verdict, the dissenting opinions, and a per-model latency/cost breakdown.
-
-The same pattern works for explanations (`Explain selected code`), free-form questions about a snippet (`Ask about selection`), and side-by-side comparisons (`Compare two implementations`).
-
-## Screenshots
-
-> Webview screenshots will be added in v0.2.0 once the consensus result panel ships. The phase-1 release uses VS Code notification toasts to confirm command wiring.
+3. Quorum fans the snippet out to all configured models, scores agreement, and renders a panel with the consensus verdict, dissenting opinions, and per-model latency/cost breakdown.
 
 ## Pricing
 
-Free during beta. **Pro £49/mo** when GA, which covers hosted consensus, all upstream provider calls, and priority routing. **BYOK is fully supported** — point `quorum.endpoint` at your own deployment or leave `quorum.apiKey` empty and supply provider keys directly; in BYOK mode you only pay your upstream providers.
+| Plan | Price | What you get |
+|---|---|---|
+| **Pro** | **£149 / mo** | 5,000 consensus queries/mo, BYOK across all providers, tamper-evident HSP traceability log, all 14+ models |
+| **Enterprise** | Contact sales | SSO, dedicated traceability-log retention, custom SLA, on-prem option |
 
-## Known limitations
+[Buy Pro on Stripe](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j) · [Enterprise inquiry](mailto:facecomercce1@gmail.com?subject=Quorum%20Enterprise%20License%20inquiry).
 
-Being honest about what 0.1.0 is and isn't:
+## License
 
-- **Depends on the hosted Quorum engine.** You need either a `quorum-ai.dev` API key or your own self-hosted Quorum instance for the commands to return real answers. Without one, the commands fire but receive no consensus.
-- **No streaming yet.** Results arrive as a single payload once the slowest configured model finishes (bounded by `quorum.maxLatencyMs`). Streaming lands in v0.2.0.
-- **No inline diagnostics yet.** Findings render in a side panel, not as squiggles in the editor. Inline diagnostics + Code Lens land in v0.3.0.
-- **Phase-1 commands are stubs.** This release ships the full command/menu/settings surface and toasts a confirmation; the real consensus calls and webview land in v0.2.0 (tracked in `CHANGELOG.md`).
+Source-available under **FSL-1.1 (Functional Source License)** — read the [LICENSE](LICENSE) file. Commercial use in VS Code requires a paid Pro license validated against `api.quorum-ai.dev/v1/license/validate`. Source converts to Apache-2.0 two years after each release.
 
 ## Links
 
 - Website: <https://quorum-ai.dev>
+- Buy Pro (£149/mo): <https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j>
 - Repository: <https://github.com/jaquelinejaque/sovereignchain>
 - Issues / feedback: <https://github.com/jaquelinejaque/sovereignchain/issues>
-- License: Apache-2.0 (see `LICENSE`); HSP modules have additional terms (see `LICENSE-HSP` in the parent repo).
+
+Copyright 2026 Sovereign Chain Ltd · UK.
