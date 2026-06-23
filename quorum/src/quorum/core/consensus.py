@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Sequence
@@ -609,6 +610,25 @@ async def consensus(
                 "fan-out will run without per-provider system prompts", e,
             )
 
+    # Camada 1.5 — Quorum persona layer (opt-in via QUORUM_PERSONA=1).
+    # Prepends a persona system prompt to every sub-model call so that no
+    # sub-model introduces itself by its own name (Qwen/Claude/GPT/etc) —
+    # Quorum is the responder, sub-models are sub-processes. The hard-coded
+    # honesty clause (in quorum.core.identity.HONESTY_CLAUSE) prevents
+    # consciousness/sentience claims regardless of YAML edits.
+    if os.environ.get("QUORUM_PERSONA", "").lower() in ("1", "true", "yes"):
+        try:
+            from quorum.core.identity import sub_model_system_prompt
+            _persona = sub_model_system_prompt()
+            for _p in selected:
+                existing = system_prompts.get(_p.name, "")
+                system_prompts[_p.name] = (
+                    _persona + "\n\n" + existing if existing else _persona
+                )
+            logger.info("quorum.persona: enabled, injected into %d sub-models", len(selected))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("quorum.persona: failed to load (%s); fan-out runs raw", e)
+
     async def _call(p: Provider) -> ModelResponse:
         async with semaphore:
             t0 = time.perf_counter()
@@ -895,6 +915,42 @@ async def consensus(
         hebbian_boost_applied=hebbian_mean,
         rlhf_weights_applied=rlhf_applied,
     )
+
+    # Camada de re-síntese Quorum (opt-in via QUORUM_PERSONA=1).
+    # Reescreve `result.answer` em voz unificada de Quorum, sintetizando
+    # as N respostas dos sub-models. NÃO substitui canonical.response em
+    # nenhum outro campo — modelos/disagreements/audit ficam inalterados
+    # para auditabilidade. Failure mode: qualquer erro mantém answer original.
+    if os.environ.get("QUORUM_PERSONA", "").lower() in ("1", "true", "yes"):
+        try:
+            from quorum.core.identity import synthesis_prompt
+            valid_responses = [r for r in responses if r.response and not r.error]
+            if len(valid_responses) >= 1:
+                labelled = [
+                    (chr(ord("A") + i), r.response)
+                    for i, r in enumerate(valid_responses)
+                ]
+                synth_prompt_text = synthesis_prompt(prompt, labelled)
+                # Reusa o provider de menor latência observada nesta rodada
+                fastest = min(valid_responses, key=lambda r: r.latency_ms)
+                synth_provider = next(
+                    (p for p in selected if p.name == fastest.name), selected[0]
+                )
+                synth_resp = await asyncio.wait_for(
+                    synth_provider.complete(synth_prompt_text),
+                    timeout=min(timeout_s, 20.0),
+                )
+                synth_text = (synth_resp.response or "").strip()
+                if synth_text:
+                    result.answer = synth_text
+                    logger.info(
+                        "quorum.persona: re-synthesised via %s (%d chars)",
+                        synth_provider.name, len(synth_text),
+                    )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "quorum.persona: re-synthesis failed (%s); keeping canonical answer", e,
+            )
 
     # Loop 14 — HSP Black Box audit append. Tamper-evident chain for
     # EU AI Act Article 14 / SOC2 audit log compliance. Best-effort:
