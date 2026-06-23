@@ -40,8 +40,9 @@ providers = [
     "replicate>=0.32",
 ]
 storage = ["aiosqlite>=0.20"]
+mcp = ["mcp>=1.0"]
 dev = ["pytest>=8.0", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.10"]
-all = ["quorum-ai[providers,storage,dev]"]
+all = ["quorum-ai[providers,storage,mcp,dev]"]
 
 [project.scripts]
 quorum = "quorum.cli:app"
@@ -49,6 +50,7 @@ quorum-server = "quorum.server.main:run"
 quorum-feedback = "quorum.evolution.feedback_cli:app"
 quorum-audit = "quorum.hsp.audit_cli:app"
 quorum-espelho = "quorum.agents.espelho_cli:app"
+quorum-mcp = "quorum.mcp.server:main"
 
 [project.urls]
 Homepage = "https://github.com/jaquelinejaque/sovereignchain"
