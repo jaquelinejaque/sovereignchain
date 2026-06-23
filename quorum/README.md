@@ -20,7 +20,7 @@ result = await consensus("What is the chemical structure of L-Cysteine?")
 # result.evolution_signals → which loops fired this query
 ```
 
-> **Pro tier: £149/mo** — paid commercial product, BYOK, all evolution loops, 5,000 queries/mo, HSP audit chain.
+> **Pro tier: £149/mo** — paid commercial product, BYOK, all evolution loops, 10,000 queries/mo, tamper-evident HSP traceability log. **Pro+ £199/mo** adds EU AI Act readiness toolkit (advisory).
 > [Buy on Stripe](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j) · Source-available under FSL-1.1 (Apache-2.0 in 2028).
 
 ## Recommended usage pattern — context profiles
@@ -73,31 +73,31 @@ Each loop closes a feedback gap that single-model deployments leak silently. The
 
 The OSS package is free forever. The hosted API at `api.quorum-ai.com` is metered. **BYOK only — Quorum never proxies your provider keys.** You pay the platform fee; your LLM spend stays on your own Anthropic / OpenAI / Gemini / Grok bills.
 
-### Pro — £49/mo (start here)
+### Pro — £149/mo (start here)
 
 | Tier | Price / mo | Included | Overage |
 |------|------------|----------|---------|
-| **Pro** | **£49** | 5,000 queries, 8 models in parallel, all 13 evolution loops, BYOK | £0.012 / query |
+| **Pro** | **£149** | 10,000 queries, 14+ models in parallel, all evolution loops, BYOK | £0.012 / query |
 
-**Why Pro is the right tier for you.** If you're a solo backend dev, indie hacker, or an agency engineer shipping LLM features under your own name, Pro is built for your workflow. You get the full consensus engine — 8 models, semantic agreement, every self-evolution loop — at a price that fits a single-developer P&L, and you keep your own provider keys so there's nothing to migrate when you scale. No seat minimums, no procurement call, no "contact sales" wall between you and shipping.
+**Why Pro is the right tier for you.** If you're a solo backend dev, indie hacker, or an agency engineer shipping LLM features under your own name, Pro is built for your workflow. You get the full consensus engine — 14+ models, semantic agreement, every self-evolution loop — and you keep your own provider keys so there's nothing to migrate when you scale. No seat minimums, no procurement call, no "contact sales" wall between you and shipping.
 
 Sign up at https://quorum-ai.dev — 30 seconds, Stripe-backed, cancel any time.
 
-### Free sandbox
-
-| Tier | Price / mo | Included |
-|------|------------|----------|
-| **Free** | £0 | 100 queries, 3 models max, no evolution loops — for dev/test only |
-
-### Higher tiers (talk to us: jaqueline@hsp-protocol.com)
-
-For multi-user accounts, regulated workloads, or the EU AI Act PDF certification path, the following exist but are deliberately out of the self-serve flow. Email if you need them.
+### Pro+ — £199/mo (EU AI Act Readiness)
 
 | Tier | Price / mo | Included | Overage |
 |------|------------|----------|---------|
-| Team | £199 | 25,000 queries, federated loop on, traceability log retention 90d | £0.008 / query |
+| **Pro+** | **£199** | 50,000 queries, per-query PDF evidence record (Art. 12/13 advisory), disagreement-matrix dashboard, readiness gap-analysis report (advisory), traceability log retention 90d | £0.008 / query |
+
+For teams preparing internal documentation for EU AI Act Annex VI self-assessment. **Advisory toolkit only — not a conformity assessment under Regulation (EU) 2024/1689.** See the legal notice in `## EU AI Act readiness toolkit` below.
+
+### Higher tiers (talk to us: jaqueline@hsp-protocol.com)
+
+For multi-user accounts, regulated workloads, or on-prem deployment, the following exist but are deliberately out of the self-serve flow. Email if you need them.
+
+| Tier | Price / mo | Included | Overage |
+|------|------------|----------|---------|
 | Enterprise | £1,499 | Unlimited, SLA 99.9%, SSO, on-prem, training data licence | Custom |
-| Readiness add-on | +£500 | Per-query EU AI Act PDF evidence record, signed, hash-chained (advisory toolkit) | — |
 
 Stripe-backed. Webhook handler with in-memory fallback so tests run without keys. See `billing/stripe_billing.py`.
 

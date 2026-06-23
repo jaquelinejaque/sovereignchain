@@ -67,7 +67,7 @@ The **Explain** and **Review** commands also appear in the editor right-click me
 
 | Plan | Price | What you get |
 |---|---|---|
-| **Pro** | **£149 / mo** | 5,000 consensus queries/mo, BYOK across all providers, tamper-evident HSP traceability log, all 14+ models |
+| **Pro** | **£149 / mo** | 10,000 consensus queries/mo, BYOK across all providers, tamper-evident HSP traceability log, all 14+ models |
 | **Enterprise** | Contact sales | SSO, dedicated traceability-log retention, custom SLA, on-prem option |
 
 [Buy Pro on Stripe](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j) · [Enterprise inquiry](mailto:facecomercce1@gmail.com?subject=Quorum%20Enterprise%20License%20inquiry).

@@ -843,21 +843,22 @@ def _register_routes(app: FastAPI, app_state: AppState) -> None:
     <h2>Pricing</h2>
     <div class="pricing">
       <div class="tier">
-        <h3>Free</h3>
-        <p class="price">&pound;0 <small>/ month</small></p>
-        <p class="quota">100 queries / month &mdash; BYOK only</p>
+        <h3>Self-host</h3>
+        <p class="price">&pound;0</p>
+        <p class="quota">CLI + library, Apache 2.0, BYOK</p>
       </div>
       <div class="tier pro">
         <h3>Pro</h3>
-        <p class="price">&pound;49 <small>/ month</small></p>
-        <p class="quota">10,000 queries + EU AI Act certs</p>
+        <p class="price">&pound;149 <small>/ month</small></p>
+        <p class="quota">10,000 queries, 14+ models, BYOK</p>
       </div>
       <div class="tier">
-        <h3>Team</h3>
+        <h3>Pro+</h3>
         <p class="price">&pound;199 <small>/ month</small></p>
-        <p class="quota">100,000 queries &mdash; contact sales</p>
+        <p class="quota">50,000 queries + EU AI Act readiness toolkit (advisory)</p>
       </div>
     </div>
+    <p class="quota" style="font-size:11px;color:#888;margin-top:8px">Pro+ is an advisory toolkit, not a conformity assessment under Regulation (EU) 2024/1689.</p>
   </section>
 
   <footer>
