@@ -176,19 +176,18 @@ export function registerOpenSettings(): vscode.Disposable {
 }
 
 /**
- * quorum.getFreeKey — opens https://quorum-ai.dev/signup so a fresh
- * user can pick up a free 100 q/mo API key without leaving VS Code.
- * Pairs with the soft-warning flow in QuorumClient/ensureKeyOrPrompt
- * that fires this same command when the user tries to call /v1/consensus
- * with quorum.apiKey unset.
+ * quorum.getProLicense — opens the Stripe Checkout for Quorum Pro
+ * (£149/mo). Quorum is paid-only: no free tier, no trial queries.
+ * Pairs with the warning flow in ensureKeyOrPrompt that fires this
+ * command when /v1/consensus is invoked without a license.
  */
-export function registerGetFreeKey(): vscode.Disposable {
-  return vscode.commands.registerCommand('quorum.getFreeKey', async () => {
+export function registerGetProLicense(): vscode.Disposable {
+  return vscode.commands.registerCommand('quorum.getProLicense', async () => {
     await vscode.env.openExternal(
-      vscode.Uri.parse('https://quorum-ai.dev/signup')
+      vscode.Uri.parse('https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j')
     );
     vscode.window.showInformationMessage(
-      'Quorum signup opened in your browser. Enter your email to get a free API key (100 queries/month), then paste it into Settings → Quorum → API Key.'
+      'Quorum Pro checkout opened (£149/mo). After payment, your license key arrives by email — paste it into Settings → Quorum → API Key.'
     );
   });
 }
@@ -204,13 +203,13 @@ export async function ensureKeyOrPrompt(): Promise<boolean> {
   const key = vscode.workspace.getConfiguration('quorum').get<string>('apiKey', '');
   if (key && key.trim().length > 0) return true;
   const choice = await vscode.window.showWarningMessage(
-    "No Quorum API key set. Get a free key (100 queries/month, no card) at quorum-ai.dev/signup, then paste it into Settings.",
-    'Get Free Key',
+    'Quorum requires a paid Pro license (£149/mo). Purchase via Stripe, then paste the key into Settings.',
+    'Get Pro License',
     'Open Settings',
     'Dismiss'
   );
-  if (choice === 'Get Free Key') {
-    await vscode.commands.executeCommand('quorum.getFreeKey');
+  if (choice === 'Get Pro License') {
+    await vscode.commands.executeCommand('quorum.getProLicense');
   } else if (choice === 'Open Settings') {
     await vscode.commands.executeCommand('quorum.openSettings');
   }

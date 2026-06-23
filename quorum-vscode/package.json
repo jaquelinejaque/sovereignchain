@@ -2,7 +2,7 @@
   "name": "quorum-vscode",
   "displayName": "Quorum — Multi-LLM Consensus (Pro)",
   "description": "Run a single prompt across 14+ frontier LLMs (Claude, GPT, Gemini, Llama, DeepSeek, Mistral, Qwen, Cohere, NVIDIA) from VS Code. Tamper-evident traceability log, semantic agreement scoring, BYOK. Requires Pro license.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "sovereignchain",
   "license": "SEE LICENSE IN LICENSE",
   "pricing": "Trial",

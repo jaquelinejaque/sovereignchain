@@ -1,32 +1,158 @@
-                                 Apache License
-                           Version 2.0, January 2004
-                        http://www.apache.org/licenses/
+Functional Source License, Version 1.1, Apache 2.0 Future License
+==================================================================
 
-Copyright 2026 Sovereign Chain Ltd (Jaqueline Martins)
+Abbreviation:    FSL-1.1-Apache-2.0
+Licensor:        Sovereign Chain Ltd (UK)
+Software:        Quorum — Multi-LLM Consensus Engine
+                 Source code, models, configuration files, schemas,
+                 audit log primitives, evolution loops, and accompanying
+                 documentation in this repository, including all versions
+                 published after 2026-06-20 (the "Change Date" cohort).
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+PURPOSE
+-------
+This License gives you the right to use the Software for any Permitted
+Purpose, including the right to use the Software for an Internal
+Business Purpose. The License excludes the right to use the Software
+for a Competing Use. Two (2) years after the first public availability
+of any given release, the License for that release converts to the
+Future License (Apache 2.0).
 
-    http://www.apache.org/licenses/LICENSE-2.0
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
+NOTICE
+------
+This License is not an Open Source license. However, the Software will
+eventually be made available under an Open Source License, as stated
+in this License.
 
----
 
-ADDITIONAL TERMS — Human Supervision Protocol (HSP)
+License Grant
+-------------
+Subject to your compliance with this License, the Licensor grants you a
+non-exclusive, royalty-free, non-transferable, non-sublicensable,
+revocable license to use, copy, modify, create derivative works of, and
+publicly perform the Software for any Permitted Purpose.
 
-This work integrates with the Human Supervision Protocol, which is
-patent-pending under PCT/US26/11908 (Patent Center, USPTO).
+A "Permitted Purpose" is any purpose other than a Competing Use.
 
-Use of the HSP-specific modules (`quorum/hsp/`, distillation gate,
-EU AI Act auto-certification, adversarial self-play) for COMMERCIAL
-PURPOSES requires a separate license from Sovereign Chain Ltd.
-See LICENSE-HSP for details.
+A "Competing Use" means making the Software available to third parties
+as a hosted, embedded, or managed service that competes with the
+Licensor's products or services that provide the Software, in whole or
+in part. Permitted Purposes specifically include using the Software for
+internal R&D, evaluation, prototype development, and audit-trail
+generation for the customer's own regulated AI workflows.
 
-Non-commercial, research, and personal use under Apache 2.0 alone
-remains unrestricted.
+For purposes of clarity, internal use of the Software (including by
+employees, contractors, and consultants of the customer) for the
+customer's own business is NOT a Competing Use.
+
+
+Internal Business Purpose
+-------------------------
+You may use the Software for your Internal Business Purpose, including
+production deployment for compliance, audit, fact-grounding, multi-LLM
+consensus, model risk validation, regulatory reporting, and adjacent
+internal workflows. You may make the functional results of the Software
+available to your employees, contractors, agents, and end-customers in
+the ordinary course of your business, provided such availability is not
+itself a Competing Use as defined above.
+
+
+Permitted Modifications
+-----------------------
+You may modify the Software and combine it with other software, in each
+case for any Permitted Purpose.
+
+
+Restrictions
+------------
+You may not (a) provide the Software's functionality to third parties
+as a hosted, embedded, or managed service that competes with the
+Licensor's commercial products; (b) remove or obscure any licensing,
+copyright, or other notices in the Software; or (c) circumvent any
+technical limitations in the Software designed to enforce this License.
+
+
+Patents
+-------
+To the extent that the Licensor (and contributors) own patent claims
+that would be infringed by your use of the Software, the Licensor (and
+contributors) grant you a non-exclusive, worldwide, royalty-free patent
+license under those patent claims, but only for Permitted Purposes.
+This patent license terminates automatically if you bring a patent
+claim against the Licensor (or any contributor) alleging that the
+Software (or the Licensor's commercial products embedding the Software)
+infringes a patent.
+
+The Licensor's patent application "Hallucination Stop Protocol"
+(PCT/US26/11908) is licensed under the same terms for Permitted Purposes.
+
+
+Future License
+--------------
+Effective on the second anniversary of the first public availability of
+any given release of the Software ("Future Date" for that release), the
+license terms for that release automatically convert to:
+
+    Apache License, Version 2.0
+    https://www.apache.org/licenses/LICENSE-2.0
+
+You may at your option continue using the affected release under this
+License (FSL-1.1) instead of the Future License, but the Future License
+becomes available at no cost on the Future Date.
+
+
+Termination
+-----------
+If you use the Software in violation of this License, your license
+terminates automatically. If the Licensor provides you with a notice of
+your violation, and you cease all violation within 30 days of the
+notice, your license will be reinstated retroactively. However, if you
+violate this License after such reinstatement, your license will
+terminate immediately and permanently. The reinstatement provision does
+not limit any other remedies available to the Licensor.
+
+
+No Warranty
+-----------
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND
+NON-INFRINGEMENT. IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY
+CLAIM, DAMAGES, OR OTHER LIABILITY (INCLUDING REGULATORY FINES OR
+CONSEQUENTIAL LOSS) ARISING FROM, OUT OF, OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+
+Reservation of Rights
+---------------------
+The Licensor reserves all rights not expressly granted to you in this
+License. The Software is the proprietary work of the Licensor and is
+protected by copyright, patent, trademark, and trade-secret laws.
+
+
+Note on Prior Releases
+----------------------
+Versions of the Software published before 2026-06-20 under the Apache
+License, Version 2.0 (notably Quorum 0.1.5 and earlier) remain licensed
+under Apache 2.0 for those distributed binaries — that grant is
+irrevocable for those specific artifacts as published. This Functional
+Source License governs Quorum 0.2.0 and later, including all source
+distributed after 2026-06-20.
+
+
+Trademarks
+----------
+"Quorum" and "Sovereign Chain" are trademarks of Sovereign Chain Ltd
+and are not licensed for use except in association with unmodified
+distribution of the Software for Permitted Purposes.
+
+
+Contact
+-------
+Licensing inquiries: facecomercce1@gmail.com
+Commercial licensing for Competing Use is available — contact the
+Licensor to discuss terms.
+
+
+Copyright (c) 2026 Sovereign Chain Ltd (UK). All rights reserved.
