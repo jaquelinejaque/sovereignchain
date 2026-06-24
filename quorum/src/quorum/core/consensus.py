@@ -653,11 +653,38 @@ async def consensus(
                     latency_ms=(time.perf_counter() - t0) * 1000,
                 )
             resp.latency_ms = (time.perf_counter() - t0) * 1000
+            if not resp.response.strip() and not resp.error:
+                resp.error = "Empty response (Missing key or rate limit?)"
+                logger.warning("Provider %s returned empty response without error (latency: %.1fms). Missing key or rate limited?", p.name, resp.latency_ms)
             return resp
 
     t_start = time.perf_counter()
     responses = await asyncio.gather(*(_call(p) for p in selected))
     valid = [r for r in responses if r.response and not r.error]
+
+    # Refusal filter — exclude models that refused to answer from the consensus
+    # scoring. A refusal ("I can't help with that") is NOT data; it inflates the
+    # apparent agreement (all refusals look alike) and biases the canonical pick.
+    # The remaining models — those that chose to answer of their own accord —
+    # form the genuine consensus. This is NOT a jailbreak: each model retains
+    # its own safety floor; Quorum simply routes around refusers.
+    if valid:
+        try:
+            from quorum.core.refusal_filter import partition_refusals
+            answered, refused = partition_refusals(valid)
+            if refused:
+                logger.info(
+                    "refusal_filter: excluded %d refuser(s) from consensus: %s",
+                    len(refused),
+                    [r.name for r, _ in refused],
+                )
+                # If everyone refused, keep `valid` as-is so we still produce
+                # a transparent answer (even if it's just the refusal itself).
+                # Otherwise, narrow `valid` to those who genuinely answered.
+                if answered:
+                    valid = answered
+        except Exception as _e:  # noqa: BLE001
+            logger.debug("refusal_filter skipped (%s); using all valid responses", _e)
 
     if not valid:
         return ConsensusResult(
@@ -925,7 +952,26 @@ async def consensus(
         try:
             from quorum.core.identity import synthesis_prompt
             valid_responses = [r for r in responses if r.response and not r.error]
-            if len(valid_responses) >= 1:
+
+            # Skip re-síntese se: (a) só 1 sub-model respondeu (nada a sintetizar);
+            # (b) confidence muito alta (>= 0.92, todos os modelos concordam,
+            #     re-rewrite só adiciona latência sem ganho); (c) resposta canônica
+            #     já curta (< 200 chars, provavelmente saudação ou ack — re-rewrite
+            #     produz meta-comentário confuso).
+            canonical_len = len(canonical.response or "")
+            should_skip = (
+                len(valid_responses) < 2
+                or confidence >= 0.92
+                or canonical_len < 200
+            )
+
+            if should_skip:
+                logger.info(
+                    "quorum.persona: skipped re-synthesis (n=%d, conf=%.2f, "
+                    "canonical_len=%d) — using canonical directly",
+                    len(valid_responses), confidence, canonical_len,
+                )
+            else:
                 labelled = [
                     (chr(ord("A") + i), r.response)
                     for i, r in enumerate(valid_responses)
@@ -936,9 +982,10 @@ async def consensus(
                 synth_provider = next(
                     (p for p in selected if p.name == fastest.name), selected[0]
                 )
+                # Budget de tempo para re-síntese: max 10s (não dobrar latency).
                 synth_resp = await asyncio.wait_for(
                     synth_provider.complete(synth_prompt_text),
-                    timeout=min(timeout_s, 20.0),
+                    timeout=min(timeout_s, 10.0),
                 )
                 synth_text = (synth_resp.response or "").strip()
                 if synth_text:
