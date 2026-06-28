@@ -223,6 +223,9 @@ async def _score_semantic(
             )
             return _jaccard_fallback(valid)
     finally:
+        # Release the embedder's httpx client. Without this, sustained
+        # parallel calls (e.g. sell-quorum's 5 concurrent drafts) leak
+        # one AsyncClient per call until the process hits EMFILE.
         await embedder.aclose()
     return confidence, weights, pairs, "embedding"
 
@@ -521,6 +524,7 @@ async def consensus(
         )
 
     if user_id:
+        embedder = None
         try:
             from quorum.core.embeddings import EmbeddingProvider
             from quorum.evolution.memory_loop import MemoryEvolution
@@ -531,6 +535,14 @@ async def consensus(
                 prompt = f"Previous Context:\n{retrieved_context}\n\nCurrent Request:\n{prompt}"
         except Exception as e:
             logger.debug("Memory retrieval skipped (%s)", e)
+        finally:
+            # Mirror the ingest path (line ~443): release the embedder's
+            # httpx client so memory retrieval doesn't leak FDs per query.
+            if embedder is not None:
+                try:
+                    await embedder.aclose()
+                except Exception:
+                    pass
 
     if route:
         selected, router_names, query_class = await _route_providers(
