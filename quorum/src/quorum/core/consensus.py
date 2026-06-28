@@ -104,6 +104,20 @@ class ConsensusResult:
     rlhf_weights_applied: dict[str, float] = field(default_factory=dict)
     """Per-model RLHF prior actually multiplied into the final weight."""
 
+    # --- v0.2.5 additions ------------------------------------------------
+    hallucination_risk: dict = field(default_factory=dict)
+    """Convergent-hallucination assessment from
+    :mod:`quorum.core.hallucination_risk`. Empty dict when no flags fired.
+    When populated, holds ``risk_level`` (``low|elevated|high``),
+    ``suggested_penalty`` (already applied to ``confidence`` if non-zero),
+    and ``flags`` (list of category/evidence/detail records).
+
+    Why surface it: a 78% consensus on a regulated UK domain where six
+    sub-models agreed in a shared fictional world produced 5/5 fabricated
+    facts on 2026-06-28. Hiding the risk silently and only downgrading
+    the score would let callers that *don't* gate on the score still
+    repeat the hallucination."""
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "answer": self.answer,
@@ -120,6 +134,7 @@ class ConsensusResult:
                 k: round(v, 4) for k, v in self.rlhf_weights_applied.items()
             },
             "scoring_method": self.scoring_method,
+            "hallucination_risk": self.hallucination_risk,
         }
 
 
@@ -954,6 +969,39 @@ async def consensus(
         hebbian_boost_applied=hebbian_mean,
         rlhf_weights_applied=rlhf_applied,
     )
+
+    # Convergent-hallucination guard. See quorum.core.hallucination_risk
+    # for the failure pattern this defends against (2026-06-28: six sub-
+    # models agreed in a shared fictional world, producing 5/5 fabricated
+    # facts at 78% confidence). Disabled if QUORUM_HALLUCINATION_GUARD=0
+    # so a tight loop benchmarking pure agreement can opt out.
+    if os.environ.get("QUORUM_HALLUCINATION_GUARD", "1") != "0":
+        try:
+            from quorum.core.hallucination_risk import (
+                apply_risk_penalty,
+                assess_hallucination_risk,
+            )
+            risk = assess_hallucination_risk(
+                prompt, result.answer, confidence=result.confidence,
+            )
+            if risk.flags:
+                # Always record the flags, even at low risk level — callers
+                # may want to surface the warning to the user regardless of
+                # whether we downgraded the score.
+                result.hallucination_risk = risk.to_dict()
+                if risk.suggested_penalty > 0:
+                    new_conf = apply_risk_penalty(result.confidence, risk)
+                    logger.warning(
+                        "hallucination_guard: %s risk on %d flag(s); "
+                        "confidence %.3f → %.3f",
+                        risk.risk_level, len(risk.flags),
+                        result.confidence, new_conf,
+                    )
+                    result.confidence = new_conf
+        except Exception as e:  # noqa: BLE001
+            # The guard MUST NEVER break a consensus call. It's a safety
+            # net, not load-bearing — log and continue.
+            logger.debug("hallucination_guard skipped (%s)", e)
 
     # Camada de re-síntese Quorum (opt-in via QUORUM_PERSONA=1).
     # Reescreve `result.answer` em voz unificada de Quorum, sintetizando
