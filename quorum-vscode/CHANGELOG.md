@@ -8,7 +8,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed (breaking)
 - **Paid commercial product.** Quorum no longer ships a free tier with 100
-  queries/month. Use requires a paid Pro license — **£149/mo** via
+  queries/month. Use requires a paid Pro license — **£15/mo** via
   [Stripe Checkout](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j).
   Enterprise pricing on request. The API gate
   (`/v1/license/validate`) rejects unlicensed traffic.
@@ -22,7 +22,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 - New command `Quorum: Get Pro License` — opens the Stripe Checkout
-  for Quorum Pro (£149/mo) so a new user can purchase without leaving
+  for Quorum Pro (£15/mo) so a new user can purchase without leaving
   VS Code. Wired into `ensureKeyOrPrompt` so an unlicensed user trying to
   run any Quorum command sees a "Get Pro License / Open Settings" toast.
 - README rewritten as a clear commercial product page (target buyer:

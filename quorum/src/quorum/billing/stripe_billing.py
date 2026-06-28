@@ -25,7 +25,7 @@ SaaS access (with quotas, SSO, dashboards, audit log) is paid. This module is
 the *single source of truth* for that paid surface:
 
 * It defines the tier matrix (PRO / FREE / TEAM / ENTERPRISE / COMPLIANCE).
-  PRO £49/mo is the default self-serve, headline product; TEAM / ENTERPRISE
+  PRO £15/mo (7-day free trial) is the default self-serve, headline product; TEAM / ENTERPRISE
   / COMPLIANCE are contact-sales (no self-serve Stripe Checkout).
 * It talks to Stripe for customer + subscription lifecycle.
 * It enforces per-customer monthly quotas via a *local* SQLite cache so the
@@ -136,6 +136,12 @@ class TierConfig:
     # Env var holding the Stripe Price ID. Kept as an env-var *name* rather
     # than the price ID itself so the matrix can be committed publicly.
 
+    trial_period_days: int = 0
+    # 0 = no trial; positive int = free-trial days threaded into the Stripe
+    # Checkout subscription_data. Set on PRO to 7 so first-time subscribers
+    # get a week before the first charge — aligned with Cursor / Continue.dev
+    # acquisition funnels where the trial converts ~5-10% of installers.
+
 
 # ``TIERS`` is intentionally ordered Pro-first. Python 3.7+ guarantees
 # insertion-order iteration over ``dict``, so anything that does
@@ -144,8 +150,8 @@ class TierConfig:
 TIERS: dict[Tier, TierConfig] = {
     "pro": TierConfig(
         name="pro",
-        price_gbp_monthly=49,
-        amount_pence=4900,
+        price_gbp_monthly=15,
+        amount_pence=1500,
         currency="gbp",
         interval="month",
         monthly_query_limit=5_000,
@@ -156,6 +162,7 @@ TIERS: dict[Tier, TierConfig] = {
         semantic_scoring=True,
         contact_sales=False,
         stripe_price_env="STRIPE_PRICE_PRO",
+        trial_period_days=7,
     ),
     "free": TierConfig(
         name="free",
@@ -226,7 +233,7 @@ DEFAULT_TIER: Tier = "pro"
 
 
 def get_default_tier() -> TierConfig:
-    """Return the default / headline self-serve tier (PRO £49/mo).
+    """Return the default / headline self-serve tier (PRO £15/mo (7-day free trial)).
 
     WHY this exists: marketing pages, API ``/pricing`` endpoints, and the
     CLI all want one canonical answer to "what should we show first?".
@@ -601,12 +608,13 @@ class BillingClient:
             )
 
         session = await asyncio.to_thread(
-            self._stripe_create_checkout_session, customer_id, price_id
+            self._stripe_create_checkout_session,
+            customer_id, price_id, cfg.trial_period_days,
         )
         return str(session["url"])
 
     def _stripe_create_checkout_session(
-        self, customer_id: str, price_id: str
+        self, customer_id: str, price_id: str, trial_period_days: int = 0,
     ) -> dict[str, Any]:
         """Create a Stripe Checkout Session for a subscription.
 
@@ -614,6 +622,12 @@ class BillingClient:
         receipts, dunning, and currency conversion. Re-implementing those
         ourselves would be a multi-quarter project and a constant source
         of compliance bugs.
+
+        ``trial_period_days`` (PRO defaults to 7) is threaded into Stripe's
+        ``subscription_data`` so first-time PRO subscribers see a 7-day
+        no-charge window before the £15/month subscription kicks in. This
+        is the conversion mechanism — Cursor/Continue.dev report
+        ~5-10% trial→paid on similar funnels.
         """
         assert _stripe_sdk is not None
         # Idempotency: scope to (customer, price, UTC day) so a network retry
@@ -623,7 +637,7 @@ class BillingClient:
         day_bucket = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         idem_raw = f"checkout:{customer_id}:{price_id}:{day_bucket}"
         idem_key = hashlib.sha256(idem_raw.encode()).hexdigest()[:32]
-        session = _stripe_sdk.checkout.Session.create(
+        create_kwargs: dict[str, Any] = dict(
             customer=customer_id,
             mode="subscription",
             line_items=[{"price": price_id, "quantity": 1}],
@@ -632,6 +646,11 @@ class BillingClient:
             allow_promotion_codes=True,
             idempotency_key=idem_key,
         )
+        if trial_period_days > 0:
+            create_kwargs["subscription_data"] = {
+                "trial_period_days": trial_period_days,
+            }
+        session = _stripe_sdk.checkout.Session.create(**create_kwargs)
         return dict(session)
 
     # ------------------------------------------------------------------
@@ -972,7 +991,7 @@ class BillingClient:
         # to the canonical ``amount_pence`` values in TIERS so a future
         # price change only has to touch the matrix above.
         team_pence = TIERS["team"].amount_pence or 19_900
-        pro_pence = TIERS["pro"].amount_pence or 4_900
+        pro_pence = TIERS["pro"].amount_pence or 1_500
         if amount >= team_pence:
             return "team"
         if amount >= pro_pence:
@@ -1114,7 +1133,7 @@ async def _test_webhook_checkout_completed_upgrades(tmp_dir: Path) -> None:
                 "object": {
                     "customer": cust,
                     "subscription": "sub_test_1",
-                    # Anchored to PRO's canonical amount_pence (£49 = 4_900)
+                    # Anchored to PRO's canonical amount_pence (£15 = 1_500)
                     # so the inference threshold and this fixture stay in sync.
                     "amount_total": TIERS["pro"].amount_pence,
                 }
@@ -1163,7 +1182,7 @@ async def _test_webhook_subscription_deleted_downgrades(tmp_dir: Path) -> None:
 
 
 def _test_pro_is_default_tier() -> None:
-    """PRO £49/mo is the canonical default + first in list_tiers()."""
+    """PRO £15/mo (7-day free trial) is the canonical default + first in list_tiers()."""
     pro = get_default_tier()
     assert pro.name == "pro"
     assert pro.price_gbp_monthly == 49

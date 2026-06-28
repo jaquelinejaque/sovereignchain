@@ -33,7 +33,7 @@ QUORUM — open-source multi-LLM consensus engine.
 - HSP Gate patent PCT/US26/11908 — async approval webhook for high-stakes calls (opt-in).
 - EU AI Act Art. 12/13 helper: per-query SHA-256 hash-chained audit log (PDF on demand).
 - VS Code extension live: sovereignchain.quorum-vscode (currently 16 installs in 36h, 0 paying customers).
-- Pro tier £49/mo · Free OSS forever · Self-host unlimited.
+- Pro tier £15/mo (7-day free trial) · Free OSS forever · Self-host unlimited.
 
 REAL CASE STUDY produced 2026-06-17: asked "Should I quit £80k UK corporate job to start a SaaS in 2026?" → 86% consensus, 23/25 OK, $0.028, 14.4s, 0 dissenters. Verdict: depends, validate first, 18-24 months runway. Screenshot at ~/Desktop/quorum-saas-vs-job.png.
 
@@ -313,7 +313,7 @@ The body must:
 - Include real case study with numbers (86% conf, $0.028, 14.4s on £80k question).
 - Honest scorecard (10/13 loops functional, 3 scaffold, README links).
 - Address the OpenRouter Fusion / OrcaRouter question head-on: yes they exist, here is the wedge.
-- Close with: open source, self-host, Pro £49/mo for managed cloud, looking for design partners.
+- Close with: open source, self-host, Pro £15/mo for managed cloud (7-day free trial), looking for design partners.
 - Anticipate the top HN comment (cost? latency? what about local?) and pre-answer it.
 - NO "we are excited", NO "revolutionary", NO emojis. Be the founder, not the marketer.
 

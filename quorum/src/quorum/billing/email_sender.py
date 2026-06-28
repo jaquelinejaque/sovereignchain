@@ -126,7 +126,7 @@ def welcome_html(api_key: str, tier: str = "Pro", email: str = "") -> str:
             <p style="font-size:13px;color:#d8d8dc;line-height:1.6;margin:0 0 10px;">
               Quorum is BYOK — you bring keys for Claude/GPT/Gemini/etc. and Quorum
               orchestrates the consensus across them. Your providers, your bills.
-              Quorum charges only the £49/mo for orchestration + audit + dashboard.
+              Quorum charges only the £15/mo for orchestration + audit + dashboard.
             </p>
             <pre style="margin:0;padding:12px;background:#050507;border:1px solid #2a2a30;border-radius:6px;font-family:'SF Mono',Menlo,monospace;font-size:11px;color:#caac7d;overflow-x:auto;">curl -X POST https://api.quorum-ai.dev/v1/customer/keys \\
   -H "X-Quorum-API-Key: {api_key[:14]}..." \\
@@ -288,7 +288,7 @@ def free_welcome_html(api_key: str, email: str = "") -> str:
           <div style="background:#0f1419;border:1px solid #1f2937;border-radius:6px;padding:18px;">
             <div style="font-size:13px;color:#7fb8e8;letter-spacing:2px;text-transform:uppercase;margin-bottom:8px;">For companies — Pro tier</div>
             <p style="font-size:14px;line-height:1.6;color:#d8d8dc;margin:0;">
-              Need EU AI Act audit certificates per query + the disagreement-matrix dashboard + 5,000 queries/month + SLA? <strong>Pro is £49/month</strong>, designed for teams shipping AI in regulated industries (legal, fintech, health). Reply to this email or visit <a href="https://quorum-ai.dev#pricing" style="color:#7fb8e8;">quorum-ai.dev#pricing</a>.
+              Need EU AI Act audit certificates per query + the disagreement-matrix dashboard + 5,000 queries/month + SLA? <strong>Pro is £15/month</strong>, designed for teams shipping AI in regulated industries (legal, fintech, health). Reply to this email or visit <a href="https://quorum-ai.dev#pricing" style="color:#7fb8e8;">quorum-ai.dev#pricing</a>.
             </p>
           </div>
         </td></tr>

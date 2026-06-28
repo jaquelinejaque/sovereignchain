@@ -148,7 +148,7 @@ _LOOPS_HEADING_RE = re.compile(
 _TABLE_ROW_RE = re.compile(r"^\|.*\|\s*$", re.MULTILINE)
 _TABLE_SEPARATOR_RE = re.compile(r"^\|[\s:|-]+\|\s*$")
 
-# Pro tier price: prefer the explicit "Pro tier: £49/mo" callout, fall back to
+# Pro tier price: prefer the explicit "Pro tier: £15/mo" callout, fall back to
 # any "£<digits>/mo" pattern near the word "Pro".
 _PRO_TIER_RE = re.compile(r"Pro\s*tier:\s*\*{0,2}(£\d+(?:\.\d+)?/mo)", re.IGNORECASE)
 _PRO_PRICE_FALLBACK_RE = re.compile(r"\*\*Pro\*\*[^|]*\|\s*\*\*?(£\d+(?:\.\d+)?)", re.IGNORECASE)

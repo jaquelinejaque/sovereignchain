@@ -2,7 +2,7 @@
 
 Solves the core economic gap discovered 2026-06-17: until now the hosted
 ``/v1/consensus`` endpoint silently used the operator's own Anthropic /
-OpenAI / Gemini keys for every customer query, so the £49/mo subscription
+OpenAI / Gemini keys for every customer query, so the £15/mo subscription
 was net-negative for any customer who actually used the headline 5k
 queries. Marketing promised BYOK; the code did not have it.
 
@@ -13,7 +13,7 @@ with a Fernet KEK (server-only env var ``CUSTOMER_KEYS_ENCRYPTION_KEY``),
 stored in a SQLite table next to the other Quorum data, and resolved per
 provider at query time. **No fallback to operator keys** — a provider the
 customer hasn't configured is simply skipped from their consensus pool.
-That makes the £49/mo billing pure operator margin: orchestration,
+That makes the £15/mo billing pure operator margin: orchestration,
 consensus algorithm, audit cert, dashboard. The customer pays their
 provider bills directly to Anthropic/OpenAI/etc.
 

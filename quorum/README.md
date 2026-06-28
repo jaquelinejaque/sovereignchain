@@ -20,7 +20,7 @@ result = await consensus("What is the chemical structure of L-Cysteine?")
 # result.evolution_signals → which loops fired this query
 ```
 
-> **Pro tier: £149/mo** — paid commercial product, BYOK, all evolution loops, 10,000 queries/mo, tamper-evident HSP traceability log. **Pro+ £199/mo** adds EU AI Act readiness toolkit (advisory).
+> **Pro tier: £15/mo** — paid commercial product, BYOK, all evolution loops, 10,000 queries/mo, tamper-evident HSP traceability log. **Pro+ £49/mo** adds EU AI Act readiness toolkit (advisory).
 > [Buy on Stripe](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j) · Source-available under FSL-1.1 (Apache-2.0 in 2028).
 
 ## Recommended usage pattern — context profiles
@@ -73,11 +73,11 @@ Each loop closes a feedback gap that single-model deployments leak silently. The
 
 The OSS package is free forever. The hosted API at `api.quorum-ai.com` is metered. **BYOK only — Quorum never proxies your provider keys.** You pay the platform fee; your LLM spend stays on your own Anthropic / OpenAI / Gemini / Grok bills.
 
-### Pro — £149/mo (start here)
+### Pro — £15/mo (start here)
 
 | Tier | Price / mo | Included | Overage |
 |------|------------|----------|---------|
-| **Pro** | **£149** | 10,000 queries, 14+ models in parallel, all evolution loops, BYOK | £0.012 / query |
+| **Pro** | **£15** | 10,000 queries, 14+ models in parallel, all evolution loops, BYOK | £0.012 / query |
 
 **Why Pro is the right tier for you.** If you're a solo backend dev, indie hacker, or an agency engineer shipping LLM features under your own name, Pro is built for your workflow. You get the full consensus engine — 14+ models, semantic agreement, every self-evolution loop — and you keep your own provider keys so there's nothing to migrate when you scale. No seat minimums, no procurement call, no "contact sales" wall between you and shipping.
 

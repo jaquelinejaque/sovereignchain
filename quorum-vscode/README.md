@@ -4,7 +4,7 @@ Quorum runs a single prompt across **14+ frontier LLMs** — Claude, GPT, Gemini
 
 Backed by the hosted [Quorum](https://quorum-ai.dev) consensus engine with a **tamper-evident HSP traceability log** — every consensus event sealed with a SHA-256 hash chain, useful as advisory evidence material for internal review and EU AI Act readiness documentation.
 
-> **Paid commercial product — £149/mo.** Quorum is source-available under FSL-1.1 and requires a paid Pro license for use in VS Code. No free tier, no trial queries. [Buy Pro](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j).
+> **Paid commercial product — £15/mo.** Quorum is source-available under FSL-1.1 and requires a paid Pro license for use in VS Code. No free tier, no trial queries. [Buy Pro](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j).
 
 ## Why Quorum
 
@@ -20,7 +20,7 @@ Built for:
 
 ## Get started in 3 steps
 
-1. **Buy a Pro license — £149/mo** via [Stripe Checkout](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j), or run `Quorum: Get Pro License` from the Command Palette after install.
+1. **Buy a Pro license — £15/mo** via [Stripe Checkout](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j), or run `Quorum: Get Pro License` from the Command Palette after install.
 2. **Open Settings** (`Cmd+,` / `Ctrl+,`), search `quorum`, paste your license key into `quorum.apiKey`.
 3. **Register your provider keys** so Quorum has models to orchestrate. Bring your own keys — the more you register, the richer the consensus.
 
@@ -67,7 +67,7 @@ The **Explain** and **Review** commands also appear in the editor right-click me
 
 | Plan | Price | What you get |
 |---|---|---|
-| **Pro** | **£149 / mo** | 10,000 consensus queries/mo, BYOK across all providers, tamper-evident HSP traceability log, all 14+ models |
+| **Pro** | **£15 / mo** | 10,000 consensus queries/mo, BYOK across all providers, tamper-evident HSP traceability log, all 14+ models |
 | **Enterprise** | Contact sales | SSO, dedicated traceability-log retention, custom SLA, on-prem option |
 
 [Buy Pro on Stripe](https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j) · [Enterprise inquiry](mailto:facecomercce1@gmail.com?subject=Quorum%20Enterprise%20License%20inquiry).
@@ -79,7 +79,7 @@ Source-available under **FSL-1.1 (Functional Source License)** — read the [LIC
 ## Links
 
 - Website: <https://quorum-ai.dev>
-- Buy Pro (£149/mo): <https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j>
+- Buy Pro (£15/mo): <https://buy.stripe.com/aFadR9d6E5rf8JGeINdwc0j>
 - Repository: <https://github.com/jaquelinejaque/sovereignchain>
 - Issues / feedback: <https://github.com/jaquelinejaque/sovereignchain/issues>
 

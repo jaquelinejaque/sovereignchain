@@ -12,8 +12,8 @@ Two execution paths:
   ``POST /v1/customer/keys``. The operator's own env keys are NOT used
   as a fallback — a provider the customer hasn't registered is simply
   excluded from their consensus pool. This is what makes the hosted
-  £49/mo Pro tier sustainable: the customer pays Anthropic / OpenAI /
-  Gemini directly, the operator pockets the £49 as pure orchestration
+  £15/mo Pro tier sustainable: the customer pays Anthropic / OpenAI /
+  Gemini directly, the operator pockets the £15 as pure orchestration
   margin. Marketing has always said "BYOK"; this is where it becomes
   true at the API layer.
 """
@@ -176,10 +176,7 @@ def load_default_providers(
         # isn't on PATH (the provider also self-checks and returns a clean
         # error so it doesn't break consensus). Hosted mode (byok=True) never
         # reaches this branch — Cloud Run has no Claude CLI installed.
-        try:
-            from quorum.providers.claude_cli import ClaudeCLIProvider
-            providers.append(ClaudeCLIProvider())
-        except Exception:  # noqa: BLE001
-            pass
+        # Claude Code CLI removed from pool to avoid 45s timeouts
+        pass
 
     return providers
